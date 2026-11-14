@@ -90,7 +90,14 @@ func TestCopyForMoveHandlesReadOnlyDirectory(t *testing.T) {
 	if err := os.Chmod(srcPath, 0o555); err != nil {
 		t.Fatal(err)
 	}
-	defer os.Chmod(srcPath, 0o755)
+	t.Cleanup(func() {
+		// Restore both directories before TempDir removes their contents.
+		for _, path := range []string{srcPath, dstPath} {
+			if err := os.Chmod(path, 0o755); err != nil && !os.IsNotExist(err) {
+				t.Errorf("restore directory permissions for cleanup: %v", err)
+			}
+		}
+	})
 
 	driver := &Local{mkdirPerm: 0o755}
 	if err := driver.copyForMove(srcPath, dstPath); err != nil {

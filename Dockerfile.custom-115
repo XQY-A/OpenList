@@ -1,0 +1,35 @@
+ARG BASE_IMAGE_TAG=base
+
+FROM golang:1.27.3-alpine AS go-toolchain
+
+FROM node:24.22.2-alpine AS builder
+RUN apk add --no-cache bash ca-certificates git gcc musl-dev && \
+    npm install --global pnpm@11.28.11
+COPY --from=go-toolchain /usr/local/go /usr/local/go
+ENV PATH="/usr/local/go/bin:${PATH}" GOTOOLCHAIN=local CGO_ENABLED=1 OPENLIST_STATIC=1
+WORKDIR /app
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+ARG BACKEND_COMMIT
+ARG BACKEND_DIRTY
+RUN bash build-custom-115.sh --source-commit "$BACKEND_COMMIT" --source-dirty "$BACKEND_DIRTY"
+
+FROM openlistteam/openlist-base-image:${BASE_IMAGE_TAG}
+ARG USER=openlist
+ARG UID=1001
+ARG GID=1001
+WORKDIR /opt/openlist
+RUN addgroup -g ${GID} ${USER} && \
+    adduser -D -u ${UID} -G ${USER} ${USER} && \
+    mkdir -p /opt/openlist/data && \
+    chown ${UID}:${GID} /opt/openlist/data
+COPY --from=builder --chmod=755 --chown=${UID}:${GID} /app/bin/openlist ./
+COPY --from=builder --chown=${UID}:${GID} /app/bin/openlist.build-info ./
+COPY --chmod=755 --chown=${UID}:${GID} entrypoint.sh /entrypoint.sh
+USER ${USER}
+ENV UMASK=022 RUN_ARIA2=false
+RUN /entrypoint.sh version
+VOLUME /opt/openlist/data
+EXPOSE 5244 5245
+CMD ["/entrypoint.sh"]

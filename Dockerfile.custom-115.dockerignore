@@ -1,0 +1,14 @@
+.git
+.github
+AGENTS.override.md
+docs/115
+data
+bin
+build
+dist
+tmp
+log
+.idea
+.DS_Store
+public/dist/*
+!public/dist/README.md
