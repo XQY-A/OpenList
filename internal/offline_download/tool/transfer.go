@@ -11,6 +11,7 @@ import (
 
 	_189pc "github.com/OpenListTeam/OpenList/v4/drivers/189pc"
 	"github.com/OpenListTeam/OpenList/v4/internal/conf"
+	"github.com/OpenListTeam/OpenList/v4/internal/driver"
 	"github.com/OpenListTeam/OpenList/v4/internal/fs"
 	"github.com/OpenListTeam/OpenList/v4/internal/model"
 	"github.com/OpenListTeam/OpenList/v4/internal/op"
@@ -260,13 +261,19 @@ func transferObj(ctx context.Context, tempDir, dstDirPath string, deletePolicy D
 	if err != nil {
 		return errors.WithMessage(err, "failed get src storage")
 	}
+	return transferObjFrom(ctx, srcStorage, srcObjActualPath, dstDirPath, deletePolicy)
+}
+
+// Keep a validated source binding when creating transfer tasks. Resolving its
+// old mount path again could select a different storage after a mount rename.
+func transferObjFrom(ctx context.Context, srcStorage driver.Driver, srcObjActualPath, dstDirPath string, deletePolicy DeletePolicy) error {
 	dstStorage, dstDirActualPath, err := op.GetStorageAndActualPath(dstDirPath)
 	if err != nil {
 		return errors.WithMessage(err, "failed get dst storage")
 	}
 	objs, err := op.List(ctx, srcStorage, srcObjActualPath, model.ListArgs{})
 	if err != nil {
-		return errors.WithMessagef(err, "failed list src [%s] objs", tempDir)
+		return errors.WithMessagef(err, "failed list src [%s] objs", srcObjActualPath)
 	}
 	taskCreator, _ := ctx.Value(conf.UserKey).(*model.User) // taskCreator is nil when convert failed
 	for _, obj := range objs {

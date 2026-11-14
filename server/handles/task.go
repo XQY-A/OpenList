@@ -1,6 +1,7 @@
 package handles
 
 import (
+	"errors"
 	"math"
 	"time"
 
@@ -32,8 +33,8 @@ type TaskInfo struct {
 
 func getTaskInfo[T task.TaskExtensionInfo](task T) TaskInfo {
 	errMsg := ""
-	if task.GetErr() != nil {
-		errMsg = task.GetErr().Error()
+	if err := task.GetErr(); err != nil {
+		errMsg = err.Error()
 	}
 	progress := task.GetProgress()
 	// if progress is NaN, set it to 100
@@ -42,9 +43,9 @@ func getTaskInfo[T task.TaskExtensionInfo](task T) TaskInfo {
 	}
 	creatorName := ""
 	creatorRole := -1
-	if task.GetCreator() != nil {
-		creatorName = task.GetCreator().Username
-		creatorRole = task.GetCreator().Role
+	if creator := task.GetCreator(); creator != nil {
+		creatorName = creator.Username
+		creatorRole = creator.Role
 	}
 	return TaskInfo{
 		ID:          task.GetID(),
@@ -70,11 +71,48 @@ func argsContains[T comparable](v T, slice ...T) bool {
 }
 
 func getUserInfo(c *gin.Context) (bool, uint, bool) {
-	if user, ok := c.Request.Context().Value(conf.UserKey).(*model.User); ok {
+	if user, ok := c.Request.Context().Value(conf.UserKey).(*model.User); ok && user != nil {
 		return user.IsAdmin(), user.ID, true
 	} else {
 		return false, 0, false
 	}
+}
+
+func canAccessTask(t task.TaskExtensionInfo, isAdmin bool, uid uint) bool {
+	creator := t.GetCreator()
+	return isAdmin || (creator != nil && uid == creator.ID)
+}
+
+func removeManagedTask[T task.TaskExtensionInfo](manager task.Manager[T], t T) error {
+	if durable, ok := any(t).(interface{ RemoveLocal() error }); ok {
+		if err := durable.RemoveLocal(); err != nil {
+			return err
+		}
+	}
+	manager.Remove(t.GetID())
+	return nil
+}
+
+func retryManagedTask[T task.TaskExtensionInfo](manager task.Manager[T], t T) error {
+	if download, ok := any(t).(*tool.DownloadTask); ok {
+		return download.RetryWith(func(next *tool.DownloadTask) {
+			if next == download {
+				manager.Retry(t.GetID())
+				return
+			}
+			manager.Add(any(next).(T))
+		})
+	}
+	manager.Retry(t.GetID())
+	return nil
+}
+
+func taskOperationError(c *gin.Context, err error) {
+	code := 500
+	if errors.Is(err, tool.ErrTaskConflict) {
+		code = 409
+	}
+	common.ErrorResp(c, err, code)
 }
 
 func getTargetedHandler[T task.TaskExtensionInfo](manager task.Manager[T], callback func(c *gin.Context, task T)) gin.HandlerFunc {
@@ -90,7 +128,7 @@ func getTargetedHandler[T task.TaskExtensionInfo](manager task.Manager[T], callb
 			common.ErrorStrResp(c, "task not found", 404)
 			return
 		}
-		if !isAdmin && uid != t.GetCreator().ID {
+		if !canAccessTask(t, isAdmin, uid) {
 			// to avoid an attacker using error messages to guess valid TID, return a 404 rather than a 403
 			common.ErrorStrResp(c, "task not found", 404)
 			return
@@ -99,7 +137,7 @@ func getTargetedHandler[T task.TaskExtensionInfo](manager task.Manager[T], callb
 	}
 }
 
-func getBatchHandler[T task.TaskExtensionInfo](manager task.Manager[T], callback func(task T)) gin.HandlerFunc {
+func getBatchHandler[T task.TaskExtensionInfo](manager task.Manager[T], callback func(task T) error) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		isAdmin, uid, ok := getUserInfo(c)
 		if !ok {
@@ -114,11 +152,13 @@ func getBatchHandler[T task.TaskExtensionInfo](manager task.Manager[T], callback
 		retErrs := make(map[string]string)
 		for _, tid := range tids {
 			t, ok := manager.GetByID(tid)
-			if !ok || (!isAdmin && uid != t.GetCreator().ID) {
+			if !ok || !canAccessTask(t, isAdmin, uid) {
 				retErrs[tid] = "task not found"
 				continue
 			}
-			callback(t)
+			if err := callback(t); err != nil {
+				retErrs[tid] = err.Error()
+			}
 		}
 		common.SuccessResp(c, retErrs)
 	}
@@ -135,7 +175,7 @@ func taskRoute[T task.TaskExtensionInfo](g *gin.RouterGroup, manager task.Manage
 		}
 		common.SuccessResp(c, getTaskInfos(manager.GetByCondition(func(task T) bool {
 			// avoid directly passing the user object into the function to reduce closure size
-			return (isAdmin || uid == task.GetCreator().ID) &&
+			return canAccessTask(task, isAdmin, uid) &&
 				argsContains(task.GetState(), tache.StatePending, tache.StateRunning, tache.StateCanceling,
 					tache.StateErrored, tache.StateFailing, tache.StateWaitingRetry, tache.StateBeforeRetry)
 		})))
@@ -148,7 +188,7 @@ func taskRoute[T task.TaskExtensionInfo](g *gin.RouterGroup, manager task.Manage
 			return
 		}
 		common.SuccessResp(c, getTaskInfos(manager.GetByCondition(func(task T) bool {
-			return (isAdmin || uid == task.GetCreator().ID) &&
+			return canAccessTask(task, isAdmin, uid) &&
 				argsContains(task.GetState(), tache.StateCanceled, tache.StateFailed, tache.StateSucceeded)
 		})))
 	})
@@ -160,24 +200,31 @@ func taskRoute[T task.TaskExtensionInfo](g *gin.RouterGroup, manager task.Manage
 		common.SuccessResp(c)
 	}))
 	g.POST("/delete", getTargetedHandler(manager, func(c *gin.Context, task T) {
-		manager.Remove(task.GetID())
+		if err := removeManagedTask(manager, task); err != nil {
+			taskOperationError(c, err)
+			return
+		}
 		common.SuccessResp(c)
 	}))
 	if canRetry {
 		g.POST("/retry", getTargetedHandler(manager, func(c *gin.Context, task T) {
-			manager.Retry(task.GetID())
+			if err := retryManagedTask(manager, task); err != nil {
+				taskOperationError(c, err)
+				return
+			}
 			common.SuccessResp(c)
 		}))
 	}
-	g.POST("/cancel_some", getBatchHandler(manager, func(task T) {
+	g.POST("/cancel_some", getBatchHandler(manager, func(task T) error {
 		manager.Cancel(task.GetID())
+		return nil
 	}))
-	g.POST("/delete_some", getBatchHandler(manager, func(task T) {
-		manager.Remove(task.GetID())
+	g.POST("/delete_some", getBatchHandler(manager, func(task T) error {
+		return removeManagedTask(manager, task)
 	}))
 	if canRetry {
-		g.POST("/retry_some", getBatchHandler(manager, func(task T) {
-			manager.Retry(task.GetID())
+		g.POST("/retry_some", getBatchHandler(manager, func(task T) error {
+			return retryManagedTask(manager, task)
 		}))
 	}
 	g.POST("/clear_done", func(c *gin.Context) {
@@ -187,10 +234,20 @@ func taskRoute[T task.TaskExtensionInfo](g *gin.RouterGroup, manager task.Manage
 			common.ErrorStrResp(c, "user invalid", 401)
 			return
 		}
-		manager.RemoveByCondition(func(task T) bool {
-			return (isAdmin || uid == task.GetCreator().ID) &&
+		tasks := manager.GetByCondition(func(task T) bool {
+			return canAccessTask(task, isAdmin, uid) &&
 				argsContains(task.GetState(), tache.StateCanceled, tache.StateFailed, tache.StateSucceeded)
 		})
+		var failures []error
+		for _, t := range tasks {
+			if err := removeManagedTask(manager, t); err != nil {
+				failures = append(failures, err)
+			}
+		}
+		if err := errors.Join(failures...); err != nil {
+			taskOperationError(c, err)
+			return
+		}
 		common.SuccessResp(c)
 	})
 	g.POST("/clear_succeeded", func(c *gin.Context) {
@@ -200,9 +257,19 @@ func taskRoute[T task.TaskExtensionInfo](g *gin.RouterGroup, manager task.Manage
 			common.ErrorStrResp(c, "user invalid", 401)
 			return
 		}
-		manager.RemoveByCondition(func(task T) bool {
-			return (isAdmin || uid == task.GetCreator().ID) && task.GetState() == tache.StateSucceeded
+		tasks := manager.GetByCondition(func(task T) bool {
+			return canAccessTask(task, isAdmin, uid) && task.GetState() == tache.StateSucceeded
 		})
+		var failures []error
+		for _, t := range tasks {
+			if err := removeManagedTask(manager, t); err != nil {
+				failures = append(failures, err)
+			}
+		}
+		if err := errors.Join(failures...); err != nil {
+			taskOperationError(c, err)
+			return
+		}
 		common.SuccessResp(c)
 	})
 	if canRetry {
@@ -213,10 +280,17 @@ func taskRoute[T task.TaskExtensionInfo](g *gin.RouterGroup, manager task.Manage
 				return
 			}
 			tasks := manager.GetByCondition(func(task T) bool {
-				return (isAdmin || uid == task.GetCreator().ID) && task.GetState() == tache.StateFailed
+				return canAccessTask(task, isAdmin, uid) && task.GetState() == tache.StateFailed
 			})
+			var failures []error
 			for _, t := range tasks {
-				manager.Retry(t.GetID())
+				if err := retryManagedTask(manager, t); err != nil {
+					failures = append(failures, err)
+				}
+			}
+			if err := errors.Join(failures...); err != nil {
+				taskOperationError(c, err)
+				return
 			}
 			common.SuccessResp(c)
 		})

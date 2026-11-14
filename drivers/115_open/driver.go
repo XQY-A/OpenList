@@ -9,6 +9,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	sdk "github.com/OpenListTeam/115-sdk-go"
@@ -30,6 +32,8 @@ type Open115 struct {
 	client     *sdk.Client
 	limiter    *rate.Limiter
 	parentPath string
+	offlineMu  sync.RWMutex
+	accountID  atomic.Int64
 }
 
 func (d *Open115) Config() driver.Config {
@@ -63,6 +67,9 @@ func (d *Open115) onTokenRefreshed(accessToken, refreshToken string) {
 }
 
 func (d *Open115) Init(ctx context.Context) error {
+	d.offlineMu.Lock()
+	defer d.offlineMu.Unlock()
+	d.accountID.Store(0)
 	if d.Addition.AccessToken == "" && d.Addition.RefreshToken == "" {
 		return errors.New("access token or refresh token is required")
 	}
@@ -79,9 +86,12 @@ func (d *Open115) Init(ctx context.Context) error {
 			return err
 		}
 	}
-	_, err := d.client.UserInfo(ctx)
+	userInfo, err := d.client.UserInfo(ctx)
 	if err != nil {
 		return err
+	}
+	if userInfo == nil || userInfo.UserID <= 0 {
+		return errors.New("115 Open did not return a valid account ID")
 	}
 	if d.Addition.LimitRate > 0 {
 		d.limiter = rate.NewLimiter(rate.Limit(d.Addition.LimitRate), 1)
@@ -114,6 +124,7 @@ func (d *Open115) Init(ctx context.Context) error {
 			}
 		}
 	}
+	d.accountID.Store(userInfo.UserID)
 	return nil
 }
 
@@ -125,6 +136,11 @@ func (d *Open115) WaitLimit(ctx context.Context) error {
 }
 
 func (d *Open115) Drop(ctx context.Context) error {
+	// Storage updates call Drop before replacing the addition and running Init.
+	// Stop bound offline requests during that gap as well as during Init itself.
+	d.offlineMu.Lock()
+	d.accountID.Store(0)
+	d.offlineMu.Unlock()
 	return nil
 }
 
@@ -432,22 +448,6 @@ func (d *Open115) Put(ctx context.Context, dstDir model.Obj, file model.FileStre
 		return err
 	}
 	return nil
-}
-
-func (d *Open115) OfflineDownload(ctx context.Context, uris []string, dstDir model.Obj) ([]string, error) {
-	return d.client.AddOfflineTaskURIs(ctx, uris, dstDir.GetID())
-}
-
-func (d *Open115) DeleteOfflineTask(ctx context.Context, infoHash string, deleteFiles bool) error {
-	return d.client.DeleteOfflineTask(ctx, infoHash, deleteFiles)
-}
-
-func (d *Open115) OfflineList(ctx context.Context) (*sdk.OfflineTaskListResp, error) {
-	resp, err := d.client.OfflineTaskList(ctx, 1)
-	if err != nil {
-		return nil, err
-	}
-	return resp, nil
 }
 
 func (d *Open115) GetDetails(ctx context.Context) (*model.StorageDetails, error) {

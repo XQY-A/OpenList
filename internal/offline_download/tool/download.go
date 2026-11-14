@@ -1,10 +1,13 @@
 package tool
 
 import (
+	"context"
 	"fmt"
 	"path"
+	"sync"
 	"time"
 
+	_115_open "github.com/OpenListTeam/OpenList/v4/drivers/115_open"
 	"github.com/OpenListTeam/OpenList/v4/internal/conf"
 	"github.com/OpenListTeam/OpenList/v4/internal/errs"
 	"github.com/OpenListTeam/OpenList/v4/internal/fs"
@@ -30,18 +33,29 @@ type DownloadTask struct {
 	GID               string       `json:"-"`
 	tool              Tool
 	callStatusRetried int
+	mu                sync.RWMutex
+	persistMu         sync.Mutex
+	operationMu       *sync.Mutex
+	runMu             sync.Mutex
+	retired           bool
+	persist           func()
+	cancel            context.CancelFunc
+	persistErr        error
+	open115           *model.OfflineDownload115Task
+	open115Store      offline115Store
 }
 
 func (t *DownloadTask) Run() error {
+	t.runMu.Lock()
+	defer t.runMu.Unlock()
 	t.ClearEndTime()
 	t.SetStartTime(time.Now())
 	defer func() { t.SetEndTime(time.Now()) }()
-	if t.tool == nil {
-		tool, err := Tools.Get(t.Toolname)
-		if err != nil {
-			return errors.WithMessage(err, "failed get tool")
-		}
-		t.tool = tool
+	if _, err := t.resolveTool(); err != nil {
+		return errors.WithMessage(err, "failed get tool")
+	}
+	if t.Is115Open() {
+		return t.run115()
 	}
 	if err := t.tool.Run(t); !errs.IsNotSupportError(err) {
 		if err == nil {
@@ -116,12 +130,12 @@ outer:
 	if t.tool.Name() == "123 Open" {
 		return nil
 	}
-	t.Status = "offline download completed, maybe transferring"
+	t.SetStatus("offline download completed, maybe transferring")
 	// hack for qBittorrent
 	if t.tool.Name() == "qBittorrent" {
 		seedTime := setting.GetInt(conf.QbittorrentSeedtime, 0)
 		if seedTime >= 0 {
-			t.Status = "offline download completed, waiting for seeding"
+			t.SetStatus("offline download completed, waiting for seeding")
 			<-time.After(time.Minute * time.Duration(seedTime))
 			err := t.tool.Remove(t)
 			if err != nil {
@@ -134,7 +148,7 @@ outer:
 		// hack for transmission
 		seedTime := setting.GetInt(conf.TransmissionSeedtime, 0)
 		if seedTime >= 0 {
-			t.Status = "offline download completed, waiting for seeding"
+			t.SetStatus("offline download completed, waiting for seeding")
 			<-time.After(time.Minute * time.Duration(seedTime))
 			err := t.tool.Remove(t)
 			if err != nil {
@@ -145,9 +159,25 @@ outer:
 	return nil
 }
 
+func (t *DownloadTask) resolveTool() (Tool, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.tool == nil {
+		client, err := Tools.Get(t.Toolname)
+		if err != nil {
+			return nil, err
+		}
+		t.tool = client
+	}
+	return t.tool, nil
+}
+
 // Update download status, return true if download completed
 func (t *DownloadTask) Update() (bool, error) {
 	info, err := t.tool.Status(t)
+	if err == nil && info == nil {
+		err = errors.New("offline tool returned an empty status")
+	}
 	if err != nil {
 		t.callStatusRetried++
 		log.Errorf("failed to get status of %s, retried %d times", t.ID, t.callStatusRetried)
@@ -159,7 +189,7 @@ func (t *DownloadTask) Update() (bool, error) {
 	t.callStatusRetried = 0
 	t.SetProgress(info.Progress)
 	t.SetTotalBytes(info.TotalBytes)
-	t.Status = fmt.Sprintf("[%s]: %s", t.tool.Name(), info.Status)
+	t.SetStatus(fmt.Sprintf("[%s]: %s", t.tool.Name(), info.Status))
 	if info.NewGID != "" {
 		log.Debugf("followen by: %+v", info.NewGID)
 		t.GID = info.NewGID
@@ -182,6 +212,20 @@ func (t *DownloadTask) Transfer() error {
 	if toolName == "115 Cloud" || toolName == "115 Open" || toolName == "123 Open" || toolName == "123Pan" || toolName == "PikPak" || toolName == "Thunder" || toolName == "ThunderX" || toolName == "ThunderBrowser" || toolName == "GuangYaPan" {
 		// 如果不是直接下载到目标路径，则进行转存
 		if t.TempDir != t.DstDirPath {
+			if t.Is115Open() {
+				source, actualPath, err := op.GetStorageAndActualPath(t.TempDir)
+				if err != nil {
+					return err
+				}
+				reference := t.Open115Reference()
+				bound, ok := source.(*_115_open.Open115)
+				if !ok || source.GetStorage().ID != reference.StorageID {
+					return errors.New("115 Open temporary path no longer belongs to the original storage")
+				}
+				return bound.WithOfflineAccount(t.Ctx(), reference.AccountID, func() error {
+					return transferObjFrom(t.Ctx(), source, actualPath, t.DstDirPath, t.DeletePolicy)
+				})
+			}
 			return transferObj(t.Ctx(), t.TempDir, t.DstDirPath, t.DeletePolicy)
 		}
 		return nil
@@ -217,10 +261,6 @@ func (t *DownloadTask) Transfer() error {
 
 func (t *DownloadTask) GetName() string {
 	return fmt.Sprintf("download %s to (%s)", t.Url, t.DstDirPath)
-}
-
-func (t *DownloadTask) GetStatus() string {
-	return t.Status
 }
 
 var DownloadTaskManager *tache.Manager[*DownloadTask]

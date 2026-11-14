@@ -2,10 +2,13 @@ package _115_open
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"time"
 
 	_115_open "github.com/OpenListTeam/OpenList/v4/drivers/115_open"
 	"github.com/OpenListTeam/OpenList/v4/internal/conf"
+	"github.com/OpenListTeam/OpenList/v4/internal/db"
 	"github.com/OpenListTeam/OpenList/v4/internal/setting"
 
 	"github.com/OpenListTeam/OpenList/v4/internal/errs"
@@ -49,51 +52,15 @@ func (o *Open115) IsReady() bool {
 }
 
 func (o *Open115) AddURL(args *tool.AddUrlArgs) (string, error) {
-	storage, actualPath, err := op.GetStorageAndActualPath(args.TempDir)
+	prepared, err := o.Prepare(args.Ctx, args.TempDir)
 	if err != nil {
 		return "", err
 	}
-	driver115Open, ok := storage.(*_115_open.Open115)
-	if !ok {
-		return "", fmt.Errorf("unsupported storage driver for offline download, only 115 Cloud is supported")
-	}
-
-	if err := op.MakeDir(args.Ctx, storage, actualPath); err != nil {
-		return "", err
-	}
-
-	parentDir, err := op.GetUnwrap(args.Ctx, storage, actualPath)
-	if err != nil {
-		return "", err
-	}
-
-	hashs, err := driver115Open.OfflineDownload(args.Ctx, []string{args.Url}, parentDir)
-	if err != nil || len(hashs) < 1 {
-		return "", fmt.Errorf("failed to add offline download task: %w", err)
-	}
-
-	return hashs[0], nil
+	return prepared.Submit(args.Ctx, args.Url)
 }
 
-func (o *Open115) Remove(task *tool.DownloadTask) error {
-	storage, _, err := op.GetStorageAndActualPath(task.TempDir)
-	if err != nil {
-		return err
-	}
-	driver115Open, ok := storage.(*_115_open.Open115)
-	if !ok {
-		return fmt.Errorf("unsupported storage driver for offline download, only 115 Open is supported")
-	}
-
-	ctx := context.Background()
-	if err := driver115Open.DeleteOfflineTask(ctx, task.GID, false); err != nil {
-		return err
-	}
-	return nil
-}
-
-func (o *Open115) Status(task *tool.DownloadTask) (*tool.Status, error) {
-	storage, _, err := op.GetStorageAndActualPath(task.TempDir)
+func (o *Open115) Prepare(ctx context.Context, tempDir string) (*tool.Open115Submission, error) {
+	storage, actualPath, err := op.GetStorageAndActualPath(tempDir)
 	if err != nil {
 		return nil, err
 	}
@@ -101,37 +68,119 @@ func (o *Open115) Status(task *tool.DownloadTask) (*tool.Status, error) {
 	if !ok {
 		return nil, fmt.Errorf("unsupported storage driver for offline download, only 115 Open is supported")
 	}
-
-	tasks, err := driver115Open.OfflineList(context.Background())
+	reference := tool.Open115Reference{
+		StorageID: storage.GetStorage().ID,
+		AccountID: driver115Open.AccountID(),
+	}
+	if reference.StorageID == 0 || reference.AccountID == "" {
+		return nil, errors.New("115 Open storage has no verified account identity")
+	}
+	var parentDir model.Obj
+	err = driver115Open.WithOfflineAccount(ctx, reference.AccountID, func() error {
+		if err := op.MakeDir(ctx, storage, actualPath); err != nil {
+			return err
+		}
+		var getErr error
+		parentDir, getErr = op.GetUnwrap(ctx, storage, actualPath)
+		return getErr
+	})
 	if err != nil {
 		return nil, err
 	}
-
-	s := &tool.Status{
-		Progress:  0,
-		NewGID:    "",
-		Completed: false,
-		Status:    "the task has been deleted",
-		Err:       nil,
-	}
-
-	for _, t := range tasks.Tasks {
-		if t.InfoHash == task.GID {
-			s.Progress = float64(t.PercentDone)
-			s.Status = t.GetStatus()
-			s.Completed = t.IsDone()
-			s.TotalBytes = t.Size
-			if t.IsFailed() {
-				s.Err = fmt.Errorf("%s", t.GetStatus())
+	return &tool.Open115Submission{
+		Reference: reference,
+		Submit: func(ctx context.Context, url string) (string, error) {
+			hash, err := driver115Open.AddOfflineTaskForAccount(ctx, reference.AccountID, url, parentDir)
+			var rejected *_115_open.OfflineTaskRejectedError
+			if errors.As(err, &rejected) {
+				return "", &tool.SubmissionRejectedError{Err: err}
 			}
-			return s, nil
-		}
+			return hash, err
+		},
+	}, nil
+}
+
+func resolveReference(reference tool.Open115Reference) (*_115_open.Open115, error) {
+	if reference.StorageID == 0 || reference.AccountID == "" {
+		return nil, errors.New("115 Open task has no reliable storage and account binding")
 	}
-	s.Err = fmt.Errorf("the task has been deleted")
-	return nil, nil
+	row, err := db.GetStorageById(reference.StorageID)
+	if err != nil {
+		return nil, fmt.Errorf("115 Open task storage is unavailable: %w", err)
+	}
+	if row.Disabled {
+		return nil, errors.New("115 Open task storage is disabled")
+	}
+	storage, err := op.GetStorageByMountPath(row.MountPath)
+	if err != nil {
+		return nil, fmt.Errorf("115 Open task storage is not loaded: %w", err)
+	}
+	driver115Open, ok := storage.(*_115_open.Open115)
+	if !ok || storage.GetStorage().ID != reference.StorageID {
+		return nil, errors.New("115 Open task storage no longer uses the original driver")
+	}
+	if driver115Open.AccountID() != reference.AccountID {
+		return nil, errors.New("115 Open task storage account has changed or is unavailable")
+	}
+	return driver115Open, nil
+}
+
+func (o *Open115) ValidateReference(reference tool.Open115Reference) error {
+	_, err := resolveReference(reference)
+	return err
+}
+
+func (o *Open115) Delete(ctx context.Context, reference tool.Open115Reference) error {
+	storage, err := resolveReference(reference)
+	if err != nil {
+		return err
+	}
+	return storage.DeleteOfflineTaskForAccount(ctx, reference.AccountID, reference.InfoHash)
+}
+
+func (o *Open115) Lookup(ctx context.Context, reference tool.Open115Reference) (*tool.Open115TaskStatus, error) {
+	storage, err := resolveReference(reference)
+	if err != nil {
+		return nil, err
+	}
+	cloudTask, err := storage.GetOfflineTaskForAccount(ctx, reference.AccountID, reference.InfoHash)
+	if err != nil || cloudTask == nil {
+		return nil, err
+	}
+	status := &tool.Open115TaskStatus{
+		State: cloudTask.Status,
+		Status: tool.Status{
+			Progress: float64(cloudTask.PercentDone), TotalBytes: cloudTask.Size,
+			Status: cloudTask.GetStatus(), Completed: cloudTask.IsDone(),
+		},
+	}
+	if cloudTask.IsFailed() {
+		status.Err = errors.New(cloudTask.GetStatus())
+	}
+	return status, nil
+}
+
+func (o *Open115) Remove(task *tool.DownloadTask) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	return o.Delete(ctx, task.Open115Reference())
+}
+
+func (o *Open115) Status(task *tool.DownloadTask) (*tool.Status, error) {
+	ctx, cancel := context.WithTimeout(task.Ctx(), 30*time.Second)
+	defer cancel()
+	status, err := o.Lookup(ctx, task.Open115Reference())
+	if err != nil {
+		return nil, err
+	}
+	if status == nil {
+		return &tool.Status{Status: "the task has been deleted", Err: errors.New("115 Open download record was not found")}, nil
+	}
+	return &status.Status, nil
 }
 
 var _ tool.Tool = (*Open115)(nil)
+var _ tool.Open115Tool = (*Open115)(nil)
 
 func init() {
 	tool.Tools.Add(&Open115{})

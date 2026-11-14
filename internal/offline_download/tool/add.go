@@ -192,6 +192,11 @@ func AddURL(ctx context.Context, args *AddURLArgs) (task.TaskExtensionInfo, erro
 		Toolname:     args.Tool,
 		tool:         tool,
 	}
+	if t.Is115Open() {
+		if err := t.init115(uid); err != nil {
+			return nil, err
+		}
+	}
 	DownloadTaskManager.Add(t)
 	return t, nil
 }

@@ -7,6 +7,7 @@ import (
 	"github.com/OpenListTeam/OpenList/v4/internal/offline_download/tool"
 	"github.com/OpenListTeam/OpenList/v4/internal/op"
 	"github.com/OpenListTeam/OpenList/v4/internal/setting"
+	"github.com/OpenListTeam/OpenList/v4/pkg/utils"
 	"github.com/OpenListTeam/tache"
 )
 
@@ -30,7 +31,12 @@ func InitTaskManager() {
 	op.RegisterSettingChangingCallback(func() {
 		fs.MoveTaskManager.SetWorkersNumActive(taskFilterNegative(setting.GetInt(conf.TaskMoveThreadsNum, conf.Conf.Tasks.Move.Workers)))
 	})
-	tool.DownloadTaskManager = tache.NewManager[*tool.DownloadTask](tache.WithWorks(setting.GetInt(conf.TaskOfflineDownloadThreadsNum, conf.Conf.Tasks.Download.Workers)), tache.WithPersistFunction(db.GetTaskDataFunc("download", conf.Conf.Tasks.Download.TaskPersistant), db.UpdateTaskDataFunc("download", conf.Conf.Tasks.Download.TaskPersistant)), tache.WithMaxRetry(conf.Conf.Tasks.Download.MaxRetry))
+	downloadWorkers := setting.GetInt(conf.TaskOfflineDownloadThreadsNum, conf.Conf.Tasks.Download.Workers)
+	var err error
+	tool.DownloadTaskManager, err = tool.NewDownloadTaskManager(downloadWorkers, conf.Conf.Tasks.Download.MaxRetry, conf.Conf.Tasks.Download.TaskPersistant)
+	if err != nil {
+		utils.Log.Fatalf("failed to restore offline downloads: %v", err)
+	}
 	op.RegisterSettingChangingCallback(func() {
 		tool.DownloadTaskManager.SetWorkersNumActive(taskFilterNegative(setting.GetInt(conf.TaskOfflineDownloadThreadsNum, conf.Conf.Tasks.Download.Workers)))
 	})
@@ -55,4 +61,14 @@ func InitTaskManager() {
 	saveOpts := tache.DefaultOptions()
 	saveOpts.Running = false
 	fs.SeedSaveTaskManager = tache.NewManager[*fs.SeedSaveTask](tache.WithOptions(*saveOpts))
+	// Restored downloads may immediately finish and create transfer tasks.
+	// Start them only after all managers exist and storage loading has ended.
+	go func() {
+		<-conf.StoragesLoadSignal()
+		// Start dispatches one queued task per call. Start once even with
+		// zero workers so a later settings change can resume the queue.
+		for range max(downloadWorkers, 1) {
+			tool.DownloadTaskManager.Start()
+		}
+	}()
 }
