@@ -5,6 +5,11 @@ with the storage and account that submitted the task. The receipt is persisted
 even when general download task persistence is disabled. Treat the hash as an
 opaque string; it is not necessarily a BTIH or an ed2k file hash.
 
+See the [usage and upgrade guide](../usage/115-open-offline.md) for the management
+interface, transfer policies and deployment steps, and the
+[personal build guide](../development/custom-115-build.md) for paired frontend
+and backend builds.
+
 These endpoints use the usual OpenList authentication and response envelope.
 Check the JSON `code`: a business error is still returned with HTTP 200.
 Only the task creator and administrators can query a task. Other users receive
@@ -141,12 +146,22 @@ Cloud deletion always uses `del_source_file=0`: it removes the 115 download
 record and **preserves downloaded files**. There is no new delete-files option.
 Existing transfer policies still apply independently to their files.
 
-The server saves cloud deletion intent before sending the request, confirms and
+The server saves cloud deletion intent before the first lookup, confirms and
 saves the cloud result, then saves the local deletion marker and removes the
-list entry. An uncertain response remains recoverable; retrying first queries
-the cloud record. After cloud deletion has been confirmed, a later local save
-failure must not cause the same hash to be deleted again. If the hash reappears,
-cloud cleanup reports a conflict; local-only deletion is still available.
+list entry. Saving intent before lookup also protects a confirmed absence whose
+later database write fails. A first attempt that proves no deletion was sent
+can reset its intent after a failed query or an ineligible cloud state, provided
+that reset is saved successfully.
+
+An uncertain deletion remains queryable. Explicitly retrying `deleting` or
+`unknown` cleanup only checks the cloud record: reliable absence completes local
+cleanup, while any existing record returns code 409 with reason
+`cloud_delete_unknown` without sending another delete. The API cannot determine
+whether that hash belongs to the original record or a newly created download.
+When a confirmed `deleted` record appears again, the reason is
+`cloud_record_reappeared`. These protections also apply after a database failure
+and process restart. Inspect the original cloud account before further action;
+local-only deletion is still available.
 
 The 115 API has no task generation or conditional-delete parameter. Coordination
 covers this OpenList process; another client can recreate the same hash between
@@ -199,7 +214,7 @@ local-only deletion.
 | --- | --- |
 | `none` | No cloud deletion has been sent |
 | `deleting` | Deletion intent has been saved |
-| `unknown` | Deletion may have succeeded; query before retrying |
+| `unknown` | The previous attempt is uncertain; retries only reconcile confirmed absence |
 | `deleted` | Deletion or absence was confirmed; local cleanup may still need to finish |
 
 A failed local write can therefore return `cloud_state: "deleted"` together

@@ -2,9 +2,12 @@ package tool
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/OpenListTeam/OpenList/v4/internal/db"
 )
 
 const (
@@ -95,9 +98,9 @@ func (t *DownloadTask) cloudDeleteResult() CloudDeleteResult {
 	return CloudDeleteResult{CloudState: t.cloudDeleteStateLocked()}
 }
 
-// setCloudDeleteState keeps a confirmed deletion in memory on write failure.
-// Before dispatch, a failed intent write can restore the previous state: no
-// cloud mutation has occurred. The caller holds operation and account locks.
+// setCloudDeleteState publishes an intent or its rollback only after saving
+// it. Failed confirmation writes must instead preserve the cloud evidence in
+// memory. The caller holds operation and account locks.
 func (t *DownloadTask) setCloudDeleteState(state string) error {
 	t.persistMu.Lock()
 	defer t.persistMu.Unlock()
@@ -106,25 +109,45 @@ func (t *DownloadTask) setCloudDeleteState(state string) error {
 		t.mu.Unlock()
 		return err
 	}
-	previous := t.cloudDeleteStateLocked()
-	t.open115.CloudDeleteState = state
-	if state == CloudDeleteDeleted && t.open115.CloudDeletedAt == nil {
+	record := *t.open115
+	record.CloudDeleteState = state
+	if state == CloudDeleteDeleted && record.CloudDeletedAt == nil {
 		now := time.Now()
-		t.open115.CloudDeletedAt = &now
+		record.CloudDeletedAt = &now
+	}
+	snapshot, err := json.Marshal(t.snapshot115Locked())
+	if err == nil {
+		record.Snapshot = string(snapshot)
+		record.UpdatedAt = time.Now()
 	}
 	t.mu.Unlock()
-	if err := t.save115Locked(); err != nil {
-		if state == CloudDeleteDeleting {
-			t.mu.Lock()
-			t.open115.CloudDeleteState = previous
-			t.mu.Unlock()
-		}
-		return &CloudDeleteError{Reason: "persistence_failed", Err: err}
+	if err == nil {
+		err = t.store115().Save(&record)
 	}
-	// save115Locked intentionally absorbs tombstone errors for late worker
-	// snapshots. A cloud mutation must not interpret that as permission to act.
-	t.mu.RLock()
-	defer t.mu.RUnlock()
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if errors.Is(err, db.ErrOfflineDownload115TaskDeleted) {
+		// A different instance may have removed this task during Lookup.
+		// Unlike ordinary late snapshots, deletion cannot absorb this error
+		// and then treat it as permission to dispatch a cloud mutation.
+		now := time.Now()
+		t.open115.DeletedAt = &now
+		t.persistErr = nil
+		return t.cloudDeleteAllowedLocked()
+	}
+	if err != nil {
+		if state == CloudDeleteDeleted || state == CloudDeleteUnknown {
+			t.open115.CloudDeleteState = state
+			t.open115.CloudDeletedAt = record.CloudDeletedAt
+		}
+		t.persistErr = fmt.Errorf("failed to persist 115 Open task: %w", err)
+		return &CloudDeleteError{Reason: "persistence_failed", Err: t.persistErr}
+	}
+	t.open115.CloudDeleteState = state
+	t.open115.CloudDeletedAt = record.CloudDeletedAt
+	t.open115.Snapshot = record.Snapshot
+	t.open115.UpdatedAt = record.UpdatedAt
+	t.persistErr = nil
 	if err := t.cloudDeleteAllowedLocked(); err != nil {
 		return err
 	}
@@ -171,33 +194,58 @@ func (t *DownloadTask) DeleteCloudRecord(ctx context.Context) (CloudDeleteResult
 	if err := ctx.Err(); err != nil {
 		return t.cloudDeleteResult(), &CloudDeleteError{Reason: "operation_canceled", Err: err}
 	}
+	initialState := t.cloudDeleteResult().CloudState
+	firstAttempt := initialState == CloudDeleteNone
+	if firstAttempt {
+		// Even a reliable absence is evidence about one point in time. Save
+		// the intent before looking it up, so a crash or failed confirmation
+		// write cannot authorize deletion of a later record with this hash.
+		if err := t.setCloudDeleteState(CloudDeleteDeleting); err != nil {
+			return t.cloudDeleteResult(), err
+		}
+	}
+	beforeDispatchError := func(cause *CloudDeleteError) (CloudDeleteResult, error) {
+		// This invocation has neither observed absence nor dispatched a
+		// mutation. A durable rollback lets a later request try normally.
+		// Failure keeps the intent and therefore requires reconciliation.
+		if firstAttempt {
+			if err := t.setCloudDeleteState(CloudDeleteNone); err != nil {
+				return t.cloudDeleteResult(), err
+			}
+		}
+		return t.cloudDeleteResult(), cause
+	}
 	status, err := client.Lookup(ctx, reference)
 	if err != nil {
-		return t.cloudDeleteResult(), cloudDeleteRequestError("cloud_query_failed", err)
+		return beforeDispatchError(cloudDeleteRequestError("cloud_query_failed", err))
 	}
 	if status != nil {
 		// A prior successful deletion is durable evidence about the old
 		// record. The same hash appearing again may belong to a new download.
-		if t.cloudDeleteResult().CloudState == CloudDeleteDeleted {
+		if initialState == CloudDeleteDeleted {
 			return t.cloudDeleteResult(), cloudDeleteConflict("cloud_record_reappeared", "the previously deleted cloud record has reappeared; refusing to delete a new download")
+		}
+		if !firstAttempt {
+			return t.cloudDeleteResult(), cloudDeleteConflict("cloud_delete_unknown", "the previous cloud deletion outcome is unknown; refusing to delete a record that may belong to a new download")
 		}
 		switch status.State {
 		case 2, -1:
 		case 0, 1:
-			return t.cloudDeleteResult(), cloudDeleteConflict("cloud_task_active", "the cloud download is still active")
+			return beforeDispatchError(cloudDeleteConflict("cloud_task_active", "the cloud download is still active"))
 		default:
-			return t.cloudDeleteResult(), cloudDeleteConflict("cloud_state_unknown", "the cloud download state is not recognized")
+			return beforeDispatchError(cloudDeleteConflict("cloud_state_unknown", "the cloud download state is not recognized"))
 		}
+		// Recheck the durable row after Lookup, since another process may
+		// have written a local tombstone while this request was querying.
 		if err := t.setCloudDeleteState(CloudDeleteDeleting); err != nil {
 			return t.cloudDeleteResult(), err
 		}
 		if err := ctx.Err(); err != nil {
-			saveErr := t.setCloudDeleteState(CloudDeleteUnknown)
-			return t.cloudDeleteResult(), &CloudDeleteError{Reason: "operation_canceled", Err: errors.Join(err, saveErr)}
+			return beforeDispatchError(&CloudDeleteError{Reason: "operation_canceled", Err: err})
 		}
 		if err := client.Delete(ctx, reference); err != nil {
 			// A failed response does not prove whether 115 applied the delete.
-			// Any later attempt starts with a complete lookup again.
+			// Later attempts may only reconcile absence, never delete again.
 			saveErr := t.setCloudDeleteState(CloudDeleteUnknown)
 			return t.cloudDeleteResult(), cloudDeleteRequestError("cloud_delete_unknown", errors.Join(err, saveErr))
 		}

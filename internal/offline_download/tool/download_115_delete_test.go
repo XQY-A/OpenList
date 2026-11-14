@@ -3,6 +3,7 @@ package tool
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -110,6 +111,9 @@ func TestDownload115CloudDeletionRequiresTerminalCloudState(t *testing.T) {
 				}
 			} else {
 				assertCloudDelete115Preserved(t, store)
+				if result.CloudState != CloudDeleteNone || store.snapshot().CloudDeleteState != CloudDeleteNone {
+					t.Fatal("a rejected lookup did not durably release its unused deletion intent")
+				}
 			}
 		})
 	}
@@ -168,8 +172,8 @@ func TestDownload115CloudDeletionIntentFailurePreventsDispatch(t *testing.T) {
 	if err == nil || result.LocalDeleted {
 		t.Fatalf("intent persistence failure reported success: %+v, %v", result, err)
 	}
-	if _, deletions := client.calls(); deletions != 0 {
-		t.Fatalf("sent %d cloud deletions without a durable intent", deletions)
+	if lookups, deletions := client.calls(); lookups != 0 || deletions != 0 {
+		t.Fatalf("cloud calls preceded the durable intent: %d lookups, %d deletions", lookups, deletions)
 	}
 	assertCloudDelete115Preserved(t, store)
 	if store.snapshot().CloudDeleteState != "none" {
@@ -196,13 +200,102 @@ func TestDownload115CloudDeletionUnknownResponseRechecksBeforeRecovery(t *testin
 	if store.snapshot().CloudDeleteState != "unknown" {
 		t.Fatal("unknown cloud outcome was not persisted")
 	}
+	for _, state := range []int{2, -1, 0, 1, 3} {
+		client.lookup = func(context.Context, Open115Reference) (*Open115TaskStatus, error) {
+			return &Open115TaskStatus{State: state}, nil
+		}
+		result, err = download.DeleteCloudRecord(context.Background())
+		var conflict *CloudDeleteError
+		if !errors.Is(err, ErrTaskConflict) || !errors.As(err, &conflict) || conflict.Reason != "cloud_delete_unknown" || result.LocalDeleted {
+			t.Fatalf("unknown outcome with cloud state %d was not refused: %+v, %v", state, result, err)
+		}
+		if result.CloudState != CloudDeleteUnknown || store.snapshot().CloudDeleteState != CloudDeleteUnknown {
+			t.Fatal("querying an existing record discarded the unknown deletion outcome")
+		}
+		if _, deletions := client.calls(); deletions != 1 {
+			t.Fatalf("unknown outcome repeated the cloud deletion %d times", deletions)
+		}
+	}
 	client.lookup = func(context.Context, Open115Reference) (*Open115TaskStatus, error) { return nil, nil }
 	result, err = download.DeleteCloudRecord(context.Background())
 	if err != nil || !result.LocalDeleted || result.CloudState != "deleted" {
 		t.Fatalf("reliable absence did not complete recovery: %+v, %v", result, err)
 	}
-	if lookups, deletions := client.calls(); lookups != 2 || deletions != 1 {
+	if lookups, deletions := client.calls(); lookups != 7 || deletions != 1 {
 		t.Fatalf("recovery repeated the cloud write: %d lookups, %d deletions", lookups, deletions)
+	}
+}
+
+func TestDownload115CloudDeletionUnusedIntentRollback(t *testing.T) {
+	for _, rejected := range []struct {
+		name      string
+		state     int
+		lookupErr error
+	}{
+		{name: "active", state: 1},
+		{name: "unrecognized", state: 3},
+		{name: "query failed", lookupErr: errors.New("query unavailable")},
+	} {
+		for _, failRollback := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/rollback_fails=%t", rejected.name, failRollback), func(t *testing.T) {
+				download, store, client := newCloudDelete115TestTask(t, "task")
+				client.lookup = func(context.Context, Open115Reference) (*Open115TaskStatus, error) {
+					if store.snapshot().CloudDeleteState != CloudDeleteDeleting {
+						return nil, errors.New("lookup preceded its durable intent")
+					}
+					return &Open115TaskStatus{State: rejected.state}, rejected.lookupErr
+				}
+				if failRollback {
+					store.saveError = func(record model.OfflineDownload115Task) error {
+						if record.CloudDeleteState == CloudDeleteNone {
+							if download.cloudDeleteResult().CloudState != CloudDeleteDeleting {
+								t.Error("rollback published none before its write completed")
+							}
+							return errors.New("rollback write failed")
+						}
+						return nil
+					}
+				}
+				result, err := download.DeleteCloudRecord(context.Background())
+				if err == nil || result.LocalDeleted {
+					t.Fatalf("rejected cloud query removed the task: %+v, %v", result, err)
+				}
+				wantState := CloudDeleteNone
+				if failRollback {
+					wantState = CloudDeleteDeleting
+					var failure *CloudDeleteError
+					if !errors.As(err, &failure) || failure.Reason != "persistence_failed" {
+						t.Fatalf("rollback write failure lost its reason: %v", err)
+					}
+				}
+				if result.CloudState != wantState || store.snapshot().CloudDeleteState != wantState {
+					t.Fatalf("rollback state = %+v, stored = %+v", result, store.snapshot())
+				}
+				if lookups, deletes := client.calls(); lookups != 1 || deletes != 0 {
+					t.Fatalf("rejected cloud query triggered unexpected calls: %d/%d", lookups, deletes)
+				}
+				store.saveError = nil
+				client.lookup = func(context.Context, Open115Reference) (*Open115TaskStatus, error) {
+					return &Open115TaskStatus{State: 2}, nil
+				}
+				result, err = download.DeleteCloudRecord(context.Background())
+				if failRollback {
+					var conflict *CloudDeleteError
+					if !errors.Is(err, ErrTaskConflict) || !errors.As(err, &conflict) || conflict.Reason != "cloud_delete_unknown" || result.LocalDeleted {
+						t.Fatalf("failed rollback authorized another deletion attempt: %+v, %v", result, err)
+					}
+					client.lookup = func(context.Context, Open115Reference) (*Open115TaskStatus, error) { return nil, nil }
+					result, err = download.DeleteCloudRecord(context.Background())
+				}
+				if err != nil || !result.LocalDeleted || store.snapshot().DeletedAt == nil {
+					t.Fatalf("reconciliation did not finish: %+v, %v", result, err)
+				}
+				_, deletes := client.calls()
+				if (failRollback && deletes != 0) || (!failRollback && deletes != 1) {
+					t.Fatalf("cloud deletion count = %d after rollback failure %v", deletes, failRollback)
+				}
+			})
+		}
 	}
 }
 
@@ -447,7 +540,7 @@ func TestDownload115CloudDeletionHonorsTombstoneWrittenDuringLookup(t *testing.T
 		t.Fatal(err)
 	}
 	record := store.snapshot()
-	if record.DeletedAt == nil || record.CloudDeleteState != "none" {
+	if record.DeletedAt == nil || record.CloudDeleteState != CloudDeleteDeleting {
 		t.Fatalf("late cleanup resurrected or rewrote the tombstone: %+v", record)
 	}
 	if download.Retryable() {
