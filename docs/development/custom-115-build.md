@@ -50,9 +50,53 @@ Docker 构建不要求宿主机安装 Go、Node.js 或 pnpm。镜像内仍使用
 
 部署沿用 OpenList 的数据卷和端口配置；替换已有实例前先停机备份数据目录，具体升级与功能使用见 [115 Open 离线下载 API](../api/115-open-offline.md)。仅执行构建命令不会启动服务或修改现有数据。
 
+## 从公共 GHCR 镜像部署
+
+个人镜像发布到 `ghcr.io/xqy-a/openlist`，同一标签包含 `linux/amd64` 和 `linux/arm64`，Docker 会按设备架构选择对应镜像。包设为公开后，无需 GitHub 账号或 `docker login` 即可拉取：
+
+```sh
+docker pull ghcr.io/xqy-a/openlist:custom-115
+```
+
+设备只支持从镜像仓库拉取时，在其容器管理页面填写以下配置，无需导入本地镜像：
+
+| 配置 | 值 |
+| --- | --- |
+| 镜像 | `ghcr.io/xqy-a/openlist:custom-115` |
+| 容器端口 | `5244/TCP`，映射到设备上可用的访问端口 |
+| 持久化目录 | 将设备上的持久化数据目录挂载到容器 `/opt/openlist/data` |
+| 运行用户 | 镜像默认使用 UID `1001`、GID `1001`；挂载目录需允许该用户读写 |
+
+容器启动后通过 `http://设备地址:映射端口` 访问。更新镜像时保留数据挂载；迁移已有实例时先停机备份，并避免两个实例同时使用同一数据目录。镜像需要设备能访问 `ghcr.io`。
+
+发布标签的含义：
+
+| 标签或引用 | 用途 |
+| --- | --- |
+| `custom-115` | 滚动标签，跟随个人分支最新一次成功发布 |
+| `sha-<完整后端提交 SHA>` | 按后端源码版本查找镜像；同一提交重新构建时会更新此标签 |
+| `build-<run_id>-<run_attempt>` | 对应一次 GitHub Actions 发布尝试，便于定位构建记录 |
+| `ghcr.io/xqy-a/openlist@sha256:<索引摘要>` | 精确指定某次发布的多架构镜像，用于固定部署和回滚 |
+
+升级前记录当前部署的镜像 digest。回滚时将设备中的镜像地址改为保存的 digest 引用，例如：
+
+```sh
+docker pull ghcr.io/xqy-a/openlist@sha256:<保存的完整索引摘要>
+```
+
+完整后端 SHA 能确定源码版本，但同一提交再次构建不保证得到同一镜像 digest；构建时间和基础镜像等因素也会影响产物。需要准确还原某次发布时使用其 digest，并保留对应的 registry 版本。镜像回滚不恢复数据目录，数据兼容与备份要求见 [115 Open 使用与升级说明](../usage/115-open-offline.md)。镜像内的 `/opt/openlist/openlist.build-info` 和 OCI revision 标签可用于核对后端版本及固定的前端版本。
+
+### 首次公开包
+
+GHCR 首次创建的个人包默认是 private，即使源码仓库已经公开也不会自动变为 public。首次工作流推送成功后，仓库所有者需要在 GitHub 个人主页的 **Packages → openlist → Package settings → Danger Zone → Change visibility → Public** 中输入包名确认。公开后应使用未登录的客户端拉取镜像，确认设备也能匿名获取；已有 Docker 登录状态的拉取成功不能证明包已公开。
+
+GitHub 当前公开 REST Packages API 没有修改可见性的端点，因此这一步通过包设置页面完成。GitHub 不支持将已公开的包改回 private。详细权限规则见 [GitHub 官方包访问权限说明](https://docs.github.com/en/packages/learn-github-packages/configuring-a-packages-access-control-and-visibility)。
+
 ## CI 与更新前端
 
-前后端的 `Personal 115 Build` 工作流都监听 `custom/115` 的推送、PR 和手动触发。前端执行类型检查、单元测试及固定语言包构建；后端执行测试、并发检查、固定前端构建及 Docker 构建。工作流上传构建 artifact，不自动发布 Release 或部署实例。
+前后端的 `Personal 115 Build` 工作流都监听 `custom/115` 的推送和 PR，并声明了手动触发事件。GitHub 的网页手动入口要求工作流同时存在于默认分支；当前个人工作流只在 `custom/115` 维护，使用推送分支作为发布入口。前端执行类型检查、单元测试及固定语言包构建；后端执行测试、并发检查、固定前端构建及 `linux/amd64`、`linux/arm64` Docker 构建，并上传构建 artifact。
+
+在 `XQY-A/OpenList` 的 `custom/115` 分支推送或手动触发时，后端工作流使用 `GITHUB_TOKEN` 的 `packages: write` 权限，将通过验证的镜像推送到 GHCR，再合并为同一多架构索引，发布上文的三个标签。PR 只构建和验证，不登录 GHCR 或发布镜像。工作流不会自动发布 GitHub Release 或部署实例。首次通过仓库工作流发布的包会自动关联该仓库；镜像的 OCI source 标签同样指向个人后端仓库。详见 [GitHub 官方容器发布说明](https://docs.github.com/en/actions/tutorials/publish-packages/publish-docker-images)。
 
 更新前端时：
 

@@ -16,9 +16,14 @@ ARG BACKEND_DIRTY
 RUN bash build-custom-115.sh --source-commit "$BACKEND_COMMIT" --source-dirty "$BACKEND_DIRTY"
 
 FROM openlistteam/openlist-base-image:${BASE_IMAGE_TAG}
+ARG BACKEND_COMMIT
 ARG USER=openlist
 ARG UID=1001
 ARG GID=1001
+LABEL org.opencontainers.image.source="https://github.com/XQY-A/OpenList" \
+    org.opencontainers.image.revision="${BACKEND_COMMIT}" \
+    org.opencontainers.image.title="OpenList Personal 115" \
+    org.opencontainers.image.description="OpenList with personal 115 Open offline download support"
 WORKDIR /opt/openlist
 RUN addgroup -g ${GID} ${USER} && \
     adduser -D -u ${UID} -G ${USER} ${USER} && \

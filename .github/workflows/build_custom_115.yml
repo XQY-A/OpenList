@@ -10,6 +10,10 @@ on:
 permissions:
   contents: read
 
+defaults:
+  run:
+    shell: bash
+
 concurrency:
   group: custom-115-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
@@ -74,8 +78,21 @@ jobs:
           retention-days: 14
 
   docker:
-    runs-on: ubuntu-latest
+    name: Docker (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
     needs: test-and-build
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    env:
+      IMAGE: openlist:custom-115-${{ matrix.arch }}
+      ARCH: ${{ matrix.arch }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -83,7 +100,121 @@ jobs:
           persist-credentials: false
 
       - name: Build personal image
-        run: bash build-custom-115.sh --docker
+        run: bash build-custom-115.sh --docker --image "$IMAGE"
 
-      - name: Check image version
-        run: docker run --rm --entrypoint /entrypoint.sh openlist:custom-115 version
+      - name: Check image version and source
+        run: |
+          source build-config/custom-115-frontend.conf
+          test "$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$IMAGE")" = "linux/$ARCH"
+          docker run --rm --entrypoint /entrypoint.sh "$IMAGE" version
+          docker run --rm --entrypoint cat "$IMAGE" /opt/openlist/openlist.build-info > "$RUNNER_TEMP/build-info-$ARCH"
+          grep -Fx "backend_commit=$GITHUB_SHA" "$RUNNER_TEMP/build-info-$ARCH"
+          grep -Fx 'backend_dirty=false' "$RUNNER_TEMP/build-info-$ARCH"
+          grep -Fx "frontend_commit=$frontend_commit" "$RUNNER_TEMP/build-info-$ARCH"
+          test "$(git status --porcelain --untracked-files=normal)" = ""
+
+      - name: Check isolated startup and embedded frontend
+        run: |
+          container_id=$(docker run --detach --publish 127.0.0.1::5244 \
+            --tmpfs /opt/openlist/data:rw,uid=1001,gid=1001 "$IMAGE")
+          trap 'docker rm -f "$container_id" > /dev/null' EXIT
+          address=$(docker port "$container_id" 5244/tcp)
+          test "$(curl --fail --silent --show-error --retry 20 --retry-all-errors \
+            --retry-delay 1 --retry-max-time 60 --max-time 5 "http://$address/ping")" = pong
+          curl --fail --silent --show-error --max-time 10 "http://$address/" > "$RUNNER_TEMP/index-$ARCH.html"
+          grep -q 'type="module"' "$RUNNER_TEMP/index-$ARCH.html"
+
+      - name: Export verified image
+        run: docker save "$IMAGE" | gzip -1 > "$RUNNER_TEMP/openlist-$ARCH.tar.gz"
+
+      - name: Upload verified image
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: docker-custom-115-${{ matrix.arch }}
+          path: ${{ runner.temp }}/openlist-${{ matrix.arch }}.tar.gz
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 2
+
+  publish:
+    name: Publish GHCR image
+    needs: docker
+    if: >-
+      github.repository == 'XQY-A/OpenList' &&
+      github.ref == 'refs/heads/custom/115' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+    env:
+      REGISTRY_IMAGE: ghcr.io/xqy-a/openlist
+    steps:
+      - name: Download verified images
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          pattern: docker-custom-115-*
+          path: ${{ runner.temp }}/images
+          merge-multiple: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
+
+      - name: Load and verify images
+        run: |
+          for arch in amd64 arm64; do
+            gunzip -c "$RUNNER_TEMP/images/openlist-$arch.tar.gz" | docker load
+            image="openlist:custom-115-$arch"
+            test "$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$image")" = "linux/$arch"
+            test "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$image")" = "$GITHUB_SHA"
+            test "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.source"}}' "$image")" = "https://github.com/$GITHUB_REPOSITORY"
+          done
+
+      - name: Log in to GHCR
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish both architectures and update tags
+        run: |
+          build_tag="build-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          references=()
+          for arch in amd64 arm64; do
+            image="$REGISTRY_IMAGE:$build_tag-$arch"
+            docker tag "openlist:custom-115-$arch" "$image"
+            docker push "$image"
+            reference=$(docker image inspect --format '{{index .RepoDigests 0}}' "$image")
+            [[ "$reference" == "$REGISTRY_IMAGE"@sha256:* ]]
+            references+=("$reference")
+          done
+
+          docker buildx imagetools create --tag "$REGISTRY_IMAGE:$build_tag" "${references[@]}"
+          docker buildx imagetools inspect "$REGISTRY_IMAGE:$build_tag" --format '{{json .Manifest}}' > "$RUNNER_TEMP/manifest.json"
+          jq --exit-status --arg amd64 "${references[0]##*@}" --arg arm64 "${references[1]##*@}" '
+            [.manifests[] | {os: .platform.os, arch: .platform.architecture, digest}] | sort_by(.arch) == [
+              {os: "linux", arch: "amd64", digest: $amd64},
+              {os: "linux", arch: "arm64", digest: $arm64}
+            ]
+          ' "$RUNNER_TEMP/manifest.json"
+          digest=$(jq --raw-output '.digest' "$RUNNER_TEMP/manifest.json")
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+
+          docker buildx imagetools create \
+            --tag "$REGISTRY_IMAGE:sha-$GITHUB_SHA" \
+            --tag "$REGISTRY_IMAGE:custom-115" "$REGISTRY_IMAGE@$digest"
+          for tag in "sha-$GITHUB_SHA" custom-115; do
+            test "$(docker buildx imagetools inspect "$REGISTRY_IMAGE:$tag" --format '{{.Manifest.Digest}}')" = "$digest"
+          done
+          {
+            echo '### Personal 115 container'
+            echo
+            echo "- Image: \`$REGISTRY_IMAGE:custom-115\`"
+            echo "- Commit tag: \`$REGISTRY_IMAGE:sha-$GITHUB_SHA\`"
+            echo "- Build tag: \`$REGISTRY_IMAGE:$build_tag\`"
+            echo "- Exact image: \`$REGISTRY_IMAGE@$digest\`"
+            echo '- Platforms: linux/amd64, linux/arm64'
+            echo '- First publication: set the GHCR package visibility to Public for anonymous pulls.'
+          } >> "$GITHUB_STEP_SUMMARY"
