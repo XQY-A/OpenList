@@ -18,6 +18,7 @@ import (
 )
 
 type TaskInfo struct {
+	*tool.Open115TaskInfo
 	ID          string      `json:"id"`
 	Name        string      `json:"name"`
 	Creator     string      `json:"creator"`
@@ -47,7 +48,7 @@ func getTaskInfo[T task.TaskExtensionInfo](task T) TaskInfo {
 		creatorName = creator.Username
 		creatorRole = creator.Role
 	}
-	return TaskInfo{
+	info := TaskInfo{
 		ID:          task.GetID(),
 		Name:        task.GetName(),
 		Creator:     creatorName,
@@ -60,6 +61,10 @@ func getTaskInfo[T task.TaskExtensionInfo](task T) TaskInfo {
 		TotalBytes:  task.GetTotalBytes(),
 		Error:       errMsg,
 	}
+	if download, ok := any(task).(*tool.DownloadTask); ok {
+		info.Open115TaskInfo = download.Get115TaskInfo()
+	}
+	return info
 }
 
 func getTaskInfos[T task.TaskExtensionInfo](tasks []T) []TaskInfo {

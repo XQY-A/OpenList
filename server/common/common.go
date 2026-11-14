@@ -22,6 +22,15 @@ func hidePrivacy(msg string) string {
 	return msg
 }
 
+// ErrorMessage applies the same privacy filtering used by error responses to
+// errors included in structured response data.
+func ErrorMessage(err error) string {
+	if err == nil {
+		return ""
+	}
+	return hidePrivacy(err.Error())
+}
+
 // ErrorResp is used to return error response
 // @param l: if true, log error
 func ErrorResp(c *gin.Context, err error, code int, l ...bool) {
@@ -71,7 +80,7 @@ func ErrorPage(c *gin.Context, err error, code int, l ...bool) {
 		<p>%s</p>
 	</body>
 </html>`,
-		codes, codes, html.EscapeString(hidePrivacy(err.Error())))
+		codes, codes, html.EscapeString(ErrorMessage(err)))
 	c.Data(code, "text/html; charset=utf-8", []byte(html))
 	c.Abort()
 }
@@ -86,7 +95,7 @@ func ErrorWithDataResp(c *gin.Context, err error, code int, data interface{}, l 
 	}
 	c.JSON(200, Resp[interface{}]{
 		Code:    code,
-		Message: hidePrivacy(err.Error()),
+		Message: ErrorMessage(err),
 		Data:    data,
 	})
 	c.Abort()

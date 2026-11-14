@@ -329,7 +329,11 @@ type AddOfflineDownloadReq struct {
 }
 
 func AddOfflineDownload(c *gin.Context) {
-	user := c.Request.Context().Value(conf.UserKey).(*model.User)
+	user, ok := c.Request.Context().Value(conf.UserKey).(*model.User)
+	if !ok || user == nil {
+		common.ErrorStrResp(c, "user invalid", 401)
+		return
+	}
 	if !user.CanAddOfflineDownloadTasks() {
 		common.ErrorStrResp(c, "permission denied", 403)
 		return
@@ -352,6 +356,10 @@ func AddOfflineDownload(c *gin.Context) {
 	}
 	if !common.CanWrite(user, meta, reqPath) {
 		common.ErrorResp(c, errs.PermissionDenied, 403)
+		return
+	}
+	if req.Tool == tool.Open115Name {
+		add115OfflineDownloads(c, reqPath, req)
 		return
 	}
 	var tasks []task.TaskExtensionInfo
@@ -379,4 +387,56 @@ func AddOfflineDownload(c *gin.Context) {
 	common.SuccessResp(c, gin.H{
 		"tasks": getTaskInfos(tasks),
 	})
+}
+
+type addOfflineDownloadResult struct {
+	Index  int    `json:"index"`
+	TaskID string `json:"task_id,omitempty"`
+	Error  string `json:"error,omitempty"`
+}
+
+func add115OfflineDownloads(c *gin.Context, path string, req AddOfflineDownloadReq) {
+	tasks := make([]task.TaskExtensionInfo, 0, len(req.Urls))
+	results := make([]addOfflineDownloadResult, 0, len(req.Urls))
+	hasURL := false
+	var firstErr error
+	for index, url := range req.Urls {
+		result := addOfflineDownloadResult{Index: index}
+		trimmedURL := strings.TrimSpace(url)
+		if trimmedURL == "" {
+			result.Error = "offline download URL is empty"
+			results = append(results, result)
+			continue
+		}
+		hasURL = true
+		t, err := tool.AddURL(c, &tool.AddURLArgs{
+			URL:          trimmedURL,
+			DstDirPath:   path,
+			Tool:         req.Tool,
+			DeletePolicy: tool.DeletePolicy(req.DeletePolicy),
+		})
+		if err == nil && t == nil {
+			err = errors.New("offline download task was not created")
+		}
+		if err != nil {
+			result.Error = common.ErrorMessage(err)
+			if firstErr == nil {
+				firstErr = err
+			}
+		} else {
+			result.TaskID = t.GetID()
+			tasks = append(tasks, t)
+		}
+		results = append(results, result)
+	}
+	data := gin.H{"tasks": getTaskInfos(tasks), "results": results}
+	if len(tasks) != 0 {
+		common.SuccessResp(c, data)
+		return
+	}
+	if !hasURL {
+		common.ErrorWithDataResp(c, errors.New("no offline download URLs provided"), 400, data)
+		return
+	}
+	common.ErrorWithDataResp(c, firstErr, 500, data)
 }
