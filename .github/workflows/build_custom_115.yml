@@ -108,8 +108,9 @@ jobs:
         run: |
           source build-config/custom-115-frontend.conf
           test "$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$IMAGE")" = "linux/$ARCH"
-          media_type=$(docker image inspect --format '{{.Descriptor.MediaType}}' "$IMAGE")
+          media_type=$(docker image inspect "$IMAGE" | jq --raw-output '.[0].Descriptor.mediaType // empty')
           case "$media_type" in
+            "") ;; # The classic image store does not expose a descriptor.
             application/vnd.oci.image.manifest.v1+json|application/vnd.docker.distribution.manifest.v2+json) ;;
             *) echo "Expected a single image manifest, got $media_type" >&2; exit 1 ;;
           esac
@@ -195,6 +196,11 @@ jobs:
             docker push "$image"
             reference=$(docker image inspect --format '{{index .RepoDigests 0}}' "$image")
             [[ "$reference" == "$REGISTRY_IMAGE"@sha256:* ]]
+            docker buildx imagetools inspect "$reference" --raw > "$RUNNER_TEMP/manifest-$arch.json"
+            jq --exit-status '
+              .mediaType == "application/vnd.oci.image.manifest.v1+json" or
+              .mediaType == "application/vnd.docker.distribution.manifest.v2+json"
+            ' "$RUNNER_TEMP/manifest-$arch.json"
             references+=("$reference")
           done
 
