@@ -194,8 +194,9 @@ jobs:
             image="$REGISTRY_IMAGE:$build_tag-$arch"
             docker tag "openlist:custom-115-$arch" "$image"
             docker push "$image"
-            reference=$(docker image inspect --format '{{index .RepoDigests 0}}' "$image")
-            [[ "$reference" == "$REGISTRY_IMAGE"@sha256:* ]]
+            digest=$(docker buildx imagetools inspect "$image" --format '{{.Manifest.Digest}}')
+            [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+            reference="$REGISTRY_IMAGE@$digest"
             docker buildx imagetools inspect "$reference" --raw > "$RUNNER_TEMP/manifest-$arch.json"
             jq --exit-status '
               .mediaType == "application/vnd.oci.image.manifest.v1+json" or
