@@ -93,6 +93,8 @@ jobs:
     env:
       IMAGE: openlist:custom-115-${{ matrix.arch }}
       ARCH: ${{ matrix.arch }}
+      # Publish one executable manifest per architecture before combining them.
+      BUILDX_NO_DEFAULT_ATTESTATIONS: "1"
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -106,6 +108,11 @@ jobs:
         run: |
           source build-config/custom-115-frontend.conf
           test "$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$IMAGE")" = "linux/$ARCH"
+          media_type=$(docker image inspect --format '{{.Descriptor.MediaType}}' "$IMAGE")
+          case "$media_type" in
+            application/vnd.oci.image.manifest.v1+json|application/vnd.docker.distribution.manifest.v2+json) ;;
+            *) echo "Expected a single image manifest, got $media_type" >&2; exit 1 ;;
+          esac
           docker run --rm --entrypoint /entrypoint.sh "$IMAGE" version
           docker run --rm --entrypoint cat "$IMAGE" /opt/openlist/openlist.build-info > "$RUNNER_TEMP/build-info-$ARCH"
           grep -Fx "backend_commit=$GITHUB_SHA" "$RUNNER_TEMP/build-info-$ARCH"
