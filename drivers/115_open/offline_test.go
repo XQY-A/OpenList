@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -162,7 +163,7 @@ func TestWithOfflineAccountValidatesContextAndCallback(t *testing.T) {
 	d := newOfflineTestDriver(func(http.ResponseWriter, *http.Request) { t.Error("unexpected cloud request") })
 	callbackErr := errors.New("directory preparation failed")
 	if err := d.WithOfflineAccount(context.Background(), "12345", func() error {
-		if d.offlineMu.TryLock() {
+		if d.offlineMu.semaphore().TryAcquire(math.MaxInt64) {
 			d.offlineMu.Unlock()
 			t.Error("account was not protected during directory preparation")
 		}
@@ -182,7 +183,9 @@ func TestWithOfflineAccountValidatesContextAndCallback(t *testing.T) {
 		t.Fatalf("cancellation was lost: %v", err)
 	}
 	// A canceled caller must not wait for an already-held initialization lock.
-	d.offlineMu.Lock()
+	if err := d.offlineMu.Lock(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 	result := make(chan error, 1)
 	go func() {
 		result <- d.WithOfflineAccount(ctx, "12345", func() error { return nil })

@@ -103,3 +103,121 @@ last durable `submitting` state becomes `unknown`. Tasks with `unknown` or
 `legacy` state are not automatically resubmitted and cannot bypass this rule
 through the retry endpoints. Verify the cloud account before intentionally
 creating a new download.
+
+## Optionally remove the cloud download record
+
+The existing deletion endpoints accept `delete_cloud_record=true`:
+
+| Endpoint | Targets |
+| --- | --- |
+| `POST /api/task/offline_download/delete?tid=<ID>&delete_cloud_record=true` | One task |
+| `POST /api/task/offline_download/delete_some?delete_cloud_record=true` | JSON array of task IDs |
+| `POST /api/task/offline_download/clear_done?delete_cloud_record=true` | All ended tasks accessible to the caller |
+| `POST /api/task/offline_download/clear_succeeded?delete_cloud_record=true` | All successful tasks accessible to the caller |
+
+Omitting the option, or passing `false`, preserves the existing local-only
+deletion and response format. Local deletion does not cancel a running download.
+The saved deletion marker prevents it from reappearing after a restart. If that
+marker cannot be saved, deletion reports an error and retains the task.
+
+The option must occur once with the literal value `true` or `false`. Empty,
+duplicate, malformed or other values return code 400 without deleting anything.
+It is separate from `delete_policy`, which controls the existing transfer and
+temporary-file behavior.
+
+When `true`, the operation applies only to `115 Open` download tasks. Other
+tools, `115 Cloud`, and `offline_download_transfer` tasks return a conflict and
+remain in the list. A task must have a reliable cloud receipt and its original
+storage/account binding, and its local state must be succeeded, failed or
+canceled. Use the existing cancel action for an active local task.
+
+Before cloud deletion, the server checks the current bound account and queries
+the cloud task. Only cloud status `2` (completed), `-1` (failed), or a reliable
+complete lookup proving absence is accepted. A currently running cloud task,
+unknown status, account change or query failure leaves the local task intact.
+Cloud requests and waits for task/account coordination are bounded by a timeout.
+
+Cloud deletion always uses `del_source_file=0`: it removes the 115 download
+record and **preserves downloaded files**. There is no new delete-files option.
+Existing transfer policies still apply independently to their files.
+
+The server saves cloud deletion intent before sending the request, confirms and
+saves the cloud result, then saves the local deletion marker and removes the
+list entry. An uncertain response remains recoverable; retrying first queries
+the cloud record. After cloud deletion has been confirmed, a later local save
+failure must not cause the same hash to be deleted again. If the hash reappears,
+cloud cleanup reports a conflict; local-only deletion is still available.
+
+The 115 API has no task generation or conditional-delete parameter. Coordination
+covers this OpenList process; another client can recreate the same hash between
+the cloud query and deletion. This is not an atomic check-and-delete across
+clients.
+
+### Deletion results
+
+A single `true` request returns one result in `data`. A batch or clear request
+returns `data.results`, with the same structure for every target:
+
+```json
+{
+  "code": 200,
+  "message": "success",
+  "data": {
+    "results": [
+      {
+        "task_id": "<removed task ID>",
+        "local_deleted": true,
+        "cloud_state": "deleted",
+        "code": 200
+      },
+      {
+        "task_id": "<retained task ID>",
+        "local_deleted": false,
+        "cloud_state": "none",
+        "code": 409,
+        "reason": "cloud_task_active",
+        "error": "<explanation>"
+      }
+    ]
+  }
+}
+```
+
+Batch and clear responses use top-level code 200 even when some or all targets
+fail; inspect each result's `code` and `local_deleted`. Single-item errors use
+the same error code at the top level and in the result. Permission failures and
+unknown task IDs both produce 404; state, type and binding conflicts use 409;
+cloud request or persistence failures use 500. `reason` is a machine-readable
+error category when available, and `error` is filtered using the existing
+privacy rules. Duplicate IDs within a `true` batch reuse their first result
+without sending another delete request. Failure never silently falls back to
+local-only deletion.
+
+`cloud_state` records the last known cleanup outcome:
+
+| Value | Meaning |
+| --- | --- |
+| `none` | No cloud deletion has been sent |
+| `deleting` | Deletion intent has been saved |
+| `unknown` | Deletion may have succeeded; query before retrying |
+| `deleted` | Deletion or absence was confirmed; local cleanup may still need to finish |
+
+A failed local write can therefore return `cloud_state: "deleted"` together
+with `local_deleted: false`. Keep that task ID and retry its cleanup rather than
+creating another download. On restart, interrupted `deleting` becomes `unknown`;
+cleanup is never automatically sent during recovery.
+
+### Advertised availability
+
+115 Open task responses also include:
+
+| Field | Meaning |
+| --- | --- |
+| `can_delete_cloud_record` | Whether the local task and current storage binding allow a cloud-cleanup attempt |
+| `cloud_delete_unavailable_reason` | An availability reason code, empty when an attempt is allowed |
+| `cloud_delete_state` | The saved or currently known cleanup state |
+
+Computing availability does not query 115. A task may advertise availability
+while its cloud counterpart is still active; the deletion request checks again
+and returns a conflict. Clients must tolerate missing fields when connected to
+an older backend, and should keep the cloud-cleanup option unchecked by default.

@@ -10,6 +10,7 @@ import (
 	"github.com/OpenListTeam/OpenList/v4/internal/conf"
 	"github.com/OpenListTeam/OpenList/v4/internal/db"
 	"github.com/OpenListTeam/OpenList/v4/internal/setting"
+	"gorm.io/gorm"
 
 	"github.com/OpenListTeam/OpenList/v4/internal/errs"
 	"github.com/OpenListTeam/OpenList/v4/internal/model"
@@ -102,27 +103,41 @@ func (o *Open115) Prepare(ctx context.Context, tempDir string) (*tool.Open115Sub
 
 func resolveReference(reference tool.Open115Reference) (*_115_open.Open115, error) {
 	if reference.StorageID == 0 || reference.AccountID == "" {
-		return nil, errors.New("115 Open task has no reliable storage and account binding")
+		return nil, referenceConflict("cloud_reference_missing", "115 Open task has no reliable storage and account binding")
 	}
 	row, err := db.GetStorageById(reference.StorageID)
 	if err != nil {
-		return nil, fmt.Errorf("115 Open task storage is unavailable: %w", err)
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, referenceConflict("storage_missing", "115 Open task storage no longer exists")
+		}
+		return nil, &tool.Open115ReferenceError{
+			Reason: "storage_unavailable", Err: fmt.Errorf("failed to load 115 Open task storage: %w", err),
+		}
 	}
 	if row.Disabled {
-		return nil, errors.New("115 Open task storage is disabled")
+		return nil, referenceConflict("storage_disabled", "115 Open task storage is disabled")
+	}
+	if row.Driver != tool.Open115Name {
+		return nil, referenceConflict("storage_changed", "115 Open task storage no longer uses the original driver")
 	}
 	storage, err := op.GetStorageByMountPath(row.MountPath)
 	if err != nil {
-		return nil, fmt.Errorf("115 Open task storage is not loaded: %w", err)
+		return nil, referenceConflict("storage_unavailable", "115 Open task storage is not loaded")
 	}
 	driver115Open, ok := storage.(*_115_open.Open115)
 	if !ok || storage.GetStorage().ID != reference.StorageID {
-		return nil, errors.New("115 Open task storage no longer uses the original driver")
+		return nil, referenceConflict("storage_changed", "115 Open task storage no longer uses the original driver")
 	}
 	if driver115Open.AccountID() != reference.AccountID {
-		return nil, errors.New("115 Open task storage account has changed or is unavailable")
+		return nil, referenceConflict("account_changed", "115 Open task storage account has changed or is unavailable")
 	}
 	return driver115Open, nil
+}
+
+func referenceConflict(reason, message string) *tool.Open115ReferenceError {
+	return &tool.Open115ReferenceError{
+		Reason: reason, Err: fmt.Errorf("%w: %s", tool.ErrTaskConflict, message),
+	}
 }
 
 func (o *Open115) ValidateReference(reference tool.Open115Reference) error {
@@ -135,7 +150,17 @@ func (o *Open115) Delete(ctx context.Context, reference tool.Open115Reference) e
 	if err != nil {
 		return err
 	}
-	return storage.DeleteOfflineTaskForAccount(ctx, reference.AccountID, reference.InfoHash)
+	err = storage.DeleteOfflineTaskForAccount(ctx, reference.AccountID, reference.InfoHash)
+	return offlineReferenceError(err)
+}
+
+func offlineReferenceError(err error) error {
+	if errors.Is(err, _115_open.ErrOfflineAccountChanged) {
+		return &tool.Open115ReferenceError{
+			Reason: "account_changed", Err: fmt.Errorf("%w: %w", tool.ErrTaskConflict, err),
+		}
+	}
+	return err
 }
 
 func (o *Open115) Lookup(ctx context.Context, reference tool.Open115Reference) (*tool.Open115TaskStatus, error) {
@@ -145,7 +170,7 @@ func (o *Open115) Lookup(ctx context.Context, reference tool.Open115Reference) (
 	}
 	cloudTask, err := storage.GetOfflineTaskForAccount(ctx, reference.AccountID, reference.InfoHash)
 	if err != nil || cloudTask == nil {
-		return nil, err
+		return nil, offlineReferenceError(err)
 	}
 	status := &tool.Open115TaskStatus{
 		State: cloudTask.Status,

@@ -186,7 +186,12 @@ func restore115Download(record model.OfflineDownload115Task) (*DownloadTask, err
 		download.Base.SetErr(errors.New(snapshot.Error))
 	}
 	if record.CloudDeleteState == "" {
-		record.CloudDeleteState = "none"
+		record.CloudDeleteState = CloudDeleteNone
+	} else if record.CloudDeleteState == CloudDeleteDeleting {
+		// The process may have stopped after dispatch, before receiving or
+		// persisting the deletion response. Only an explicit, fresh query can
+		// reconcile it; recovery must never send another cloud mutation.
+		record.CloudDeleteState = CloudDeleteUnknown
 	}
 	if record.InfoHash != "" {
 		if record.StorageID == 0 || record.AccountID == "" {

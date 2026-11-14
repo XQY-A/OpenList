@@ -22,6 +22,10 @@ type OfflineTaskRejectedError struct {
 func (e *OfflineTaskRejectedError) Error() string { return e.Err.Error() }
 func (e *OfflineTaskRejectedError) Unwrap() error { return e.Err }
 
+// ErrOfflineAccountChanged identifies a lost account binding, including a
+// concurrent Drop or failed Init, without requiring callers to parse messages.
+var ErrOfflineAccountChanged = errors.New("115 Open offline account changed")
+
 // AccountID identifies the account from the last successful initialization.
 // An empty value means initialization has not completed or the driver was dropped.
 func (d *Open115) AccountID() string {
@@ -37,10 +41,10 @@ func (d *Open115) AccountID() string {
 func (d *Open115) checkOfflineAccount(accountID string) error {
 	current := d.AccountID()
 	if current == "" || d.client == nil {
-		return errors.New("115 Open account is not initialized")
+		return fmt.Errorf("%w: account is not initialized", ErrOfflineAccountChanged)
 	}
 	if accountID == "" || current != accountID {
-		return errors.New("115 Open account no longer matches the offline task")
+		return fmt.Errorf("%w: account no longer matches the offline task", ErrOfflineAccountChanged)
 	}
 	return nil
 }
@@ -56,7 +60,9 @@ func (d *Open115) WithOfflineAccount(ctx context.Context, accountID string, call
 	if callback == nil {
 		return errors.New("115 Open account operation is required")
 	}
-	d.offlineMu.RLock()
+	if err := d.offlineMu.RLock(ctx); err != nil {
+		return err
+	}
 	defer d.offlineMu.RUnlock()
 	if err := ctx.Err(); err != nil {
 		return err
@@ -68,7 +74,9 @@ func (d *Open115) WithOfflineAccount(ctx context.Context, accountID string, call
 }
 
 func (d *Open115) OfflineDownload(ctx context.Context, uris []string, dstDir model.Obj) ([]string, error) {
-	d.offlineMu.RLock()
+	if err := d.offlineMu.RLock(ctx); err != nil {
+		return nil, err
+	}
 	defer d.offlineMu.RUnlock()
 	if err := d.checkOfflineAccount(d.AccountID()); err != nil {
 		return nil, err
@@ -86,7 +94,9 @@ func (d *Open115) AddOfflineTask(ctx context.Context, uri string, dstDir model.O
 }
 
 func (d *Open115) AddOfflineTaskForAccount(ctx context.Context, accountID, uri string, dstDir model.Obj) (string, error) {
-	d.offlineMu.RLock()
+	if err := d.offlineMu.RLock(ctx); err != nil {
+		return "", &OfflineTaskRejectedError{Err: err}
+	}
 	defer d.offlineMu.RUnlock()
 	if err := d.checkOfflineAccount(accountID); err != nil {
 		return "", &OfflineTaskRejectedError{Err: err}
@@ -146,7 +156,9 @@ func (d *Open115) addOfflineTask(ctx context.Context, uri string, dstDir model.O
 }
 
 func (d *Open115) DeleteOfflineTask(ctx context.Context, infoHash string, deleteFiles bool) error {
-	d.offlineMu.RLock()
+	if err := d.offlineMu.RLock(ctx); err != nil {
+		return err
+	}
 	defer d.offlineMu.RUnlock()
 	if err := d.checkOfflineAccount(d.AccountID()); err != nil {
 		return err
@@ -157,7 +169,9 @@ func (d *Open115) DeleteOfflineTask(ctx context.Context, infoHash string, delete
 // DeleteOfflineTaskForAccount removes only the cloud download record. It never
 // asks 115 to remove downloaded files.
 func (d *Open115) DeleteOfflineTaskForAccount(ctx context.Context, accountID, infoHash string) error {
-	d.offlineMu.RLock()
+	if err := d.offlineMu.RLock(ctx); err != nil {
+		return err
+	}
 	defer d.offlineMu.RUnlock()
 	if err := d.checkOfflineAccount(accountID); err != nil {
 		return err
@@ -176,7 +190,9 @@ func (d *Open115) deleteOfflineTask(ctx context.Context, infoHash string, delete
 }
 
 func (d *Open115) OfflineList(ctx context.Context) (*sdk.OfflineTaskListResp, error) {
-	d.offlineMu.RLock()
+	if err := d.offlineMu.RLock(ctx); err != nil {
+		return nil, err
+	}
 	defer d.offlineMu.RUnlock()
 	if err := d.checkOfflineAccount(d.AccountID()); err != nil {
 		return nil, err
@@ -207,7 +223,9 @@ func (d *Open115) GetOfflineTask(ctx context.Context, infoHash string) (*sdk.Off
 }
 
 func (d *Open115) GetOfflineTaskForAccount(ctx context.Context, accountID, infoHash string) (*sdk.OfflineTask, error) {
-	d.offlineMu.RLock()
+	if err := d.offlineMu.RLock(ctx); err != nil {
+		return nil, err
+	}
 	defer d.offlineMu.RUnlock()
 	if err := d.checkOfflineAccount(accountID); err != nil {
 		return nil, err

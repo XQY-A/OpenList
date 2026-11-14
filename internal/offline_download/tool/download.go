@@ -35,7 +35,7 @@ type DownloadTask struct {
 	callStatusRetried int
 	mu                sync.RWMutex
 	persistMu         sync.Mutex
-	operationMu       *sync.Mutex
+	operationMu       *contextMutex
 	runMu             sync.Mutex
 	retired           bool
 	persist           func()

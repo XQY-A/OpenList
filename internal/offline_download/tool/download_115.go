@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/OpenListTeam/OpenList/v4/internal/conf"
@@ -220,14 +219,21 @@ func (t *DownloadTask) Retryable() bool {
 }
 
 func (t *DownloadTask) lockOperation() func() {
+	unlock, _ := t.lockOperationContext(context.Background())
+	return unlock
+}
+
+func (t *DownloadTask) lockOperationContext(ctx context.Context) (func(), error) {
 	t.mu.Lock()
 	if t.operationMu == nil {
-		t.operationMu = &sync.Mutex{}
+		t.operationMu = &contextMutex{}
 	}
 	lock := t.operationMu
 	t.mu.Unlock()
-	lock.Lock()
-	return lock.Unlock
+	if err := lock.Lock(ctx); err != nil {
+		return nil, err
+	}
+	return lock.Unlock, nil
 }
 
 // RetryWith replaces a finished 115 execution with a new object using the same

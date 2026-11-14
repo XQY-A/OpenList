@@ -9,7 +9,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -32,7 +31,7 @@ type Open115 struct {
 	client     *sdk.Client
 	limiter    *rate.Limiter
 	parentPath string
-	offlineMu  sync.RWMutex
+	offlineMu  offlineAccountMutex
 	accountID  atomic.Int64
 }
 
@@ -67,7 +66,9 @@ func (d *Open115) onTokenRefreshed(accessToken, refreshToken string) {
 }
 
 func (d *Open115) Init(ctx context.Context) error {
-	d.offlineMu.Lock()
+	if err := d.offlineMu.Lock(ctx); err != nil {
+		return err
+	}
 	defer d.offlineMu.Unlock()
 	d.accountID.Store(0)
 	if d.Addition.AccessToken == "" && d.Addition.RefreshToken == "" {
@@ -138,7 +139,9 @@ func (d *Open115) WaitLimit(ctx context.Context) error {
 func (d *Open115) Drop(ctx context.Context) error {
 	// Storage updates call Drop before replacing the addition and running Init.
 	// Stop bound offline requests during that gap as well as during Init itself.
-	d.offlineMu.Lock()
+	if err := d.offlineMu.Lock(ctx); err != nil {
+		return err
+	}
 	d.accountID.Store(0)
 	d.offlineMu.Unlock()
 	return nil

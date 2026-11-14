@@ -113,11 +113,7 @@ func retryManagedTask[T task.TaskExtensionInfo](manager task.Manager[T], t T) er
 }
 
 func taskOperationError(c *gin.Context, err error) {
-	code := 500
-	if errors.Is(err, tool.ErrTaskConflict) {
-		code = 409
-	}
-	common.ErrorResp(c, err, code)
+	common.ErrorResp(c, err, taskOperationCode(err))
 }
 
 func getTargetedHandler[T task.TaskExtensionInfo](manager task.Manager[T], callback func(c *gin.Context, task T)) gin.HandlerFunc {
@@ -204,13 +200,7 @@ func taskRoute[T task.TaskExtensionInfo](g *gin.RouterGroup, manager task.Manage
 		manager.Cancel(task.GetID())
 		common.SuccessResp(c)
 	}))
-	g.POST("/delete", getTargetedHandler(manager, func(c *gin.Context, task T) {
-		if err := removeManagedTask(manager, task); err != nil {
-			taskOperationError(c, err)
-			return
-		}
-		common.SuccessResp(c)
-	}))
+	g.POST("/delete", getDeleteTaskHandler(manager))
 	if canRetry {
 		g.POST("/retry", getTargetedHandler(manager, func(c *gin.Context, task T) {
 			if err := retryManagedTask(manager, task); err != nil {
@@ -224,59 +214,14 @@ func taskRoute[T task.TaskExtensionInfo](g *gin.RouterGroup, manager task.Manage
 		manager.Cancel(task.GetID())
 		return nil
 	}))
-	g.POST("/delete_some", getBatchHandler(manager, func(task T) error {
-		return removeManagedTask(manager, task)
-	}))
+	g.POST("/delete_some", getDeleteSomeTasksHandler(manager))
 	if canRetry {
 		g.POST("/retry_some", getBatchHandler(manager, func(task T) error {
 			return retryManagedTask(manager, task)
 		}))
 	}
-	g.POST("/clear_done", func(c *gin.Context) {
-		isAdmin, uid, ok := getUserInfo(c)
-		if !ok {
-			// if there is no bug, here is unreachable
-			common.ErrorStrResp(c, "user invalid", 401)
-			return
-		}
-		tasks := manager.GetByCondition(func(task T) bool {
-			return canAccessTask(task, isAdmin, uid) &&
-				argsContains(task.GetState(), tache.StateCanceled, tache.StateFailed, tache.StateSucceeded)
-		})
-		var failures []error
-		for _, t := range tasks {
-			if err := removeManagedTask(manager, t); err != nil {
-				failures = append(failures, err)
-			}
-		}
-		if err := errors.Join(failures...); err != nil {
-			taskOperationError(c, err)
-			return
-		}
-		common.SuccessResp(c)
-	})
-	g.POST("/clear_succeeded", func(c *gin.Context) {
-		isAdmin, uid, ok := getUserInfo(c)
-		if !ok {
-			// if there is no bug, here is unreachable
-			common.ErrorStrResp(c, "user invalid", 401)
-			return
-		}
-		tasks := manager.GetByCondition(func(task T) bool {
-			return canAccessTask(task, isAdmin, uid) && task.GetState() == tache.StateSucceeded
-		})
-		var failures []error
-		for _, t := range tasks {
-			if err := removeManagedTask(manager, t); err != nil {
-				failures = append(failures, err)
-			}
-		}
-		if err := errors.Join(failures...); err != nil {
-			taskOperationError(c, err)
-			return
-		}
-		common.SuccessResp(c)
-	})
+	g.POST("/clear_done", getClearTasksHandler(manager, tache.StateCanceled, tache.StateFailed, tache.StateSucceeded))
+	g.POST("/clear_succeeded", getClearTasksHandler(manager, tache.StateSucceeded))
 	if canRetry {
 		g.POST("/retry_failed", func(c *gin.Context) {
 			isAdmin, uid, ok := getUserInfo(c)
