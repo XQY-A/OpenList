@@ -163,6 +163,7 @@ jobs:
     if: >-
       github.repository == 'XQY-A/OpenList' &&
       github.ref == 'refs/heads/custom/115' &&
+      !inputs.source_sha &&
       (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     permissions:
       contents: read
