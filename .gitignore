@@ -23,6 +23,7 @@ output/
 /bin/*
 *.json
 !renovate.json
+!/build-config/custom-115-sync.json
 /build
 /data/
 /tmp/

@@ -94,7 +94,9 @@ GitHub 当前公开 REST Packages API 没有修改可见性的端点，因此这
 
 ## CI 与更新前端
 
-前后端的 `Personal 115 Build` 工作流都监听 `custom/115` 的推送和 PR，并声明了手动触发事件。GitHub 的网页手动入口要求工作流同时存在于默认分支；当前个人工作流只在 `custom/115` 维护，使用推送分支作为发布入口。前端执行类型检查、单元测试及固定语言包构建；后端执行测试、并发检查、固定前端构建及 `linux/amd64`、`linux/arm64` Docker 构建，并上传构建 artifact。
+前后端上游同步、共享任务变更的审查和自动发布见 [个人 115 上游自动同步](custom-115-sync.md)。两个个人仓库将默认分支设为 `custom/115` 后，可在 Actions 网页直接手动运行个人工作流。
+
+前后端的 `Personal 115 Build` 工作流都监听 `custom/115` 的推送和 PR，并支持手动触发及同步流程调用。GitHub 的网页手动入口要求工作流存在于默认分支。前端执行类型检查、单元测试及固定语言包构建；后端执行测试、并发检查、固定前端构建及 `linux/amd64`、`linux/arm64` Docker 构建，并上传构建 artifact。
 
 在 `XQY-A/OpenList` 的 `custom/115` 分支推送或手动触发时，后端工作流使用 `GITHUB_TOKEN` 的 `packages: write` 权限，将通过验证的镜像推送到 GHCR，再合并为同一多架构索引，发布上文的三个标签。PR 只构建和验证，不登录 GHCR 或发布镜像。工作流不会自动发布 GitHub Release 或部署实例。首次通过仓库工作流发布的包会自动关联该仓库；镜像的 OCI source 标签同样指向个人后端仓库。详见 [GitHub 官方容器发布说明](https://docs.github.com/en/actions/tutorials/publish-packages/publish-docker-images)。
 

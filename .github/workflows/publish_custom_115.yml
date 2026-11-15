@@ -1,0 +1,118 @@
+name: Publish Personal 115 Image
+
+on:
+  workflow_call:
+    inputs:
+      source_sha:
+        type: string
+        required: true
+
+permissions:
+  contents: read
+  packages: write
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  publish:
+    name: Publish GHCR image
+    if: >-
+      github.repository == 'XQY-A/OpenList' &&
+      github.ref == 'refs/heads/custom/115'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    concurrency:
+      group: custom-115-ghcr-publication
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      packages: write
+    env:
+      REGISTRY_IMAGE: ghcr.io/xqy-a/openlist
+      SOURCE_SHA: ${{ inputs.source_sha }}
+    steps:
+      - name: Verify the validated commit is the managed branch HEAD
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$(gh api repos/XQY-A/OpenList/git/ref/heads/custom/115 --jq .object.sha)" = "$SOURCE_SHA"
+
+      - name: Download verified images
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          pattern: docker-custom-115-*
+          path: ${{ runner.temp }}/images
+          merge-multiple: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
+
+      - name: Load and verify images
+        run: |
+          for arch in amd64 arm64; do
+            gunzip -c "$RUNNER_TEMP/images/openlist-$arch.tar.gz" | docker load
+            image="openlist:custom-115-$arch"
+            test "$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$image")" = "linux/$arch"
+            test "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$image")" = "$SOURCE_SHA"
+            test "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.source"}}' "$image")" = "https://github.com/$GITHUB_REPOSITORY"
+          done
+
+      - name: Log in to GHCR
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish both architectures and update tags
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          build_tag="build-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          references=()
+          for arch in amd64 arm64; do
+            image="$REGISTRY_IMAGE:$build_tag-$arch"
+            docker tag "openlist:custom-115-$arch" "$image"
+            docker push "$image"
+            digest=$(docker buildx imagetools inspect "$image" --format '{{.Manifest.Digest}}')
+            [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+            reference="$REGISTRY_IMAGE@$digest"
+            docker buildx imagetools inspect "$reference" --raw > "$RUNNER_TEMP/manifest-$arch.json"
+            jq --exit-status '
+              .mediaType == "application/vnd.oci.image.manifest.v1+json" or
+              .mediaType == "application/vnd.docker.distribution.manifest.v2+json"
+            ' "$RUNNER_TEMP/manifest-$arch.json"
+            references+=("$reference")
+          done
+
+          docker buildx imagetools create --tag "$REGISTRY_IMAGE:$build_tag" "${references[@]}"
+          docker buildx imagetools inspect "$REGISTRY_IMAGE:$build_tag" --format '{{json .Manifest}}' > "$RUNNER_TEMP/manifest.json"
+          jq --exit-status --arg amd64 "${references[0]##*@}" --arg arm64 "${references[1]##*@}" '
+            [.manifests[] | {os: .platform.os, arch: .platform.architecture, digest}] | sort_by(.arch) == [
+              {os: "linux", arch: "amd64", digest: $amd64},
+              {os: "linux", arch: "arm64", digest: $arm64}
+            ]
+          ' "$RUNNER_TEMP/manifest.json"
+          digest=$(jq --raw-output '.digest' "$RUNNER_TEMP/manifest.json")
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+
+          test "$(gh api repos/XQY-A/OpenList/git/ref/heads/custom/115 --jq .object.sha)" = "$SOURCE_SHA"
+          docker buildx imagetools create \
+            --tag "$REGISTRY_IMAGE:sha-$SOURCE_SHA" \
+            --tag "$REGISTRY_IMAGE:custom-115" "$REGISTRY_IMAGE@$digest"
+          for tag in "sha-$SOURCE_SHA" custom-115; do
+            test "$(docker buildx imagetools inspect "$REGISTRY_IMAGE:$tag" --format '{{.Manifest.Digest}}')" = "$digest"
+          done
+          {
+            echo '### Personal 115 container'
+            echo
+            echo "- Image: \`$REGISTRY_IMAGE:custom-115\`"
+            echo "- Commit tag: \`$REGISTRY_IMAGE:sha-$SOURCE_SHA\`"
+            echo "- Build tag: \`$REGISTRY_IMAGE:$build_tag\`"
+            echo "- Exact image: \`$REGISTRY_IMAGE@$digest\`"
+            echo '- Platforms: linux/amd64, linux/arm64'
+            echo '- First publication: set the GHCR package visibility to Public for anonymous pulls.'
+          } >> "$GITHUB_STEP_SUMMARY"

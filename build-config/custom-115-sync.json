@@ -1,0 +1,28 @@
+{
+  "repository": "XQY-A/OpenList",
+  "upstream_repository": "OpenListTeam/OpenList",
+  "branch": "custom/115",
+  "upstream_commit": "f2dcf4a86be90c5ca9210fd3e2c464be87a94e1a",
+  "frontend_repository": "XQY-A/OpenList-Frontend",
+  "automatic_paths": [
+    "docs/**",
+    "README*",
+    "lang/**",
+    "drivers/**"
+  ],
+  "review_paths": [
+    "drivers/115*/**",
+    "internal/**",
+    "server/**",
+    "pkg/**",
+    "public/**",
+    "go.mod",
+    "go.sum",
+    ".github/**",
+    "scripts/**",
+    "tests/**",
+    "build*",
+    "Dockerfile*",
+    "AGENTS*"
+  ]
+}
