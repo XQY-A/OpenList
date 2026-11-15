@@ -1,5 +1,9 @@
 # 115 Open offline download API
 
+For the complete API reference for this branch, including all other OpenList
+endpoints, see [the AI reference](openlist-api.md) and
+[OpenAPI 3.1](openlist.openapi.json).
+
 The `115 Open` tool keeps the original `info_hash` returned by 115, together
 with the storage and account that submitted the task. The receipt is persisted
 even when general download task persistence is disabled. Treat the hash as an

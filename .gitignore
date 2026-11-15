@@ -22,6 +22,7 @@ output/
 # vendor/
 /bin/*
 *.json
+!/docs/api/openlist.openapi.json
 !renovate.json
 !/build-config/custom-115-sync.json
 /build

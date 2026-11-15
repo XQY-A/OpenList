@@ -1,0 +1,14 @@
+# OpenList custom/115
+
+> API documentation generated from the actual custom/115 implementation, including personal 115 Open offline download changes. Prefer this branch's source-backed contracts when upstream documentation differs.
+
+## API reference
+
+- [Complete API reference for AI](https://raw.githubusercontent.com/XQY-A/OpenList/refs/heads/custom/115/docs/api/openlist-api.md): Chinese guide, all registered /api routes, request models, response constructors, and the complete 115 extension contract.
+- [OpenAPI 3.1](https://raw.githubusercontent.com/XQY-A/OpenList/refs/heads/custom/115/docs/api/openlist.openapi.json): Standard HTTP operations, schemas, security, and handler source in x-openlist-contracts. Dynamic data schemas remain open.
+- [115 Open offline download contract](https://raw.githubusercontent.com/XQY-A/OpenList/refs/heads/custom/115/docs/api/115-open-offline.md): Task receipt, info_hash, submission and cleanup states, optional cloud record deletion, partial batch results, and uncertain outcome recovery.
+- [115 usage and upgrade guide](https://raw.githubusercontent.com/XQY-A/OpenList/refs/heads/custom/115/docs/usage/115-open-offline.md): Management UI and upgrade behavior, with verification limits.
+
+## Upstream reference
+
+- [Official API documentation index](https://fox.oplist.org/llms.txt): Supplemental upstream reference. Does not include the personal 115 extensions and may differ from this branch.
