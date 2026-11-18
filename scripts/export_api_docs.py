@@ -183,9 +183,11 @@ def export(inventory):
     schemas.ref("server/handles.addOfflineDownloadResult")
     schemas.schemas[schema_name("internal/offline_download/tool.Open115TaskInfo")]["properties"]["submission_state"]["enum"] = ["pending", "submitting", "accepted", "failed", "unknown", "legacy"]
     schemas.schemas[schema_name("internal/offline_download/tool.Open115TaskInfo")]["properties"]["cloud_delete_state"]["enum"] = ["none", "deleting", "unknown", "deleted"]
-    for field in ("submission_state", "cloud_delete_state"):
+    schemas.schemas[schema_name("internal/offline_download/tool.Open115TaskInfo")]["properties"]["source_file_delete_state"]["enum"] = ["none", "deleting", "unknown", "deleted"]
+    for field in ("submission_state", "cloud_delete_state", "source_file_delete_state"):
         schemas.schemas[schema_name("server/handles.TaskInfo")]["properties"][field].update(schemas.schemas[schema_name("internal/offline_download/tool.Open115TaskInfo")]["properties"][field])
     schemas.schemas[schema_name("server/handles.taskDeleteResult")]["properties"]["cloud_state"]["enum"] = ["none", "deleting", "unknown", "deleted"]
+    schemas.schemas[schema_name("server/handles.taskDeleteResult")]["properties"]["source_file_delete_state"]["enum"] = ["none", "deleting", "unknown", "deleted"]
     schemas.schemas[schema_name("server/handles.TaskInfo")]["properties"]["state"].update(enum=list(range(10)), description="0 Pending, 1 Running, 2 Succeeded, 3 Canceling, 4 Canceled, 5 Errored, 6 Failing, 7 Failed, 8 WaitingRetry, 9 BeforeRetry")
     manual_response_types = {"FsListSplit": "server/handles.FsListResp", "FsGetSplit": "server/handles.FsGetResp", "FsArchiveMetaSplit": "server/handles.ArchiveMetaResp", "FsDirs": "[]server/handles.DirResp", "CurrentUser": "server/handles.UserResp", "WorkerRegister": "internal/transcode.RegisterResponse", "WorkerHeartbeat": "internal/transcode.HeartbeatResponse", "WorkerClaim": "internal/transcode.ClaimResponse", "MultipartInit": "server/handles.MultipartInitResp"}
     for r in inventory["routes"]:
@@ -203,6 +205,7 @@ def export(inventory):
                 params.append({"in": "query", "name": "tid"})
             if action in ("delete", "delete_some", "clear_done", "clear_succeeded"):
                 params.append({"in": "query", "name": "delete_cloud_record"})
+                params.append({"in": "query", "name": "delete_source_file"})
         methods = ANY_METHODS if r["method"] == "Any" else [r["method"].lower()]
         for method in methods:
             if method not in HTTP_METHODS:
@@ -226,13 +229,16 @@ def export(inventory):
                 if p["in"] in ("file", "form") or p["name"].lower() in ("authorization", "content-type", "content-length"):
                     continue
                 parameter_schema = {"type": "string"}
-                if p["name"] == "delete_cloud_record":
+                if p["name"] in ("delete_cloud_record", "delete_source_file"):
                     parameter_schema["enum"] = ["true", "false"]
+                    parameter_schema["default"] = "false"
                 item = {"name": p["name"], "in": p["in"], "required": p["in"] == "path", "schema": parameter_schema}
                 if is_task and p["name"] == "tid":
                     item.update(required=True, description="本地任务 ID；不是 info_hash")
                 elif p["name"] == "delete_cloud_record":
-                    item["description"] = "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，保留文件。只能传一次字面值 true 或 false。"
+                    item["description"] = "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，默认保留文件。只能传一次字面值 true 或 false。"
+                elif p["name"] == "delete_source_file":
+                    item["description"] = "缺省/false 保留 115 源文件；true 同时删除对应文件或文件夹，必须配合 delete_cloud_record=true。只能传一次字面值 true 或 false；后续云清理须保持原选择。"
                 if p.get("default"):
                     item["x-go-default-expression"] = p["default"]
                 converted.append(item)
@@ -281,7 +287,7 @@ def export(inventory):
                 cloud = schemas.ref("server/handles.taskDeleteResult") if action == "delete" else {"type": "object", "required": ["results"], "properties": {"results": {"type": "array", "items": schemas.ref("server/handles.taskDeleteResult")}}}
                 local = {"type": "object", "additionalProperties": {"type": "string"}} if action == "delete_some" else {"type": "null"}
                 typed_response(op, {"anyOf": [cloud, local]})
-                op["description"] = "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。"
+                op["description"] = "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。delete_source_file=true 必须配合云清理，并取得明确成功回执；记录消失不能确认文件删除。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted；请求删除文件时还需确认 source_file_delete_state=deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。"
             elif is_task and action in ("cancel_some", "retry_some"):
                 typed_response(op, {"type": "object", "additionalProperties": {"type": "string"}, "description": "任务ID到错误的失败映射；空对象表示无逐项错误"})
             special_responses(op, handler)

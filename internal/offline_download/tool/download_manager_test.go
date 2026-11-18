@@ -232,8 +232,8 @@ func (m *manager115Tool) Lookup(_ context.Context, reference Open115Reference) (
 	m.lookups <- reference
 	return &Open115TaskStatus{Status: Status{Completed: true, Progress: 100, Status: "complete"}, State: 2}, nil
 }
-func (*manager115Tool) Delete(context.Context, Open115Reference) error { return nil }
-func (*manager115Tool) ValidateReference(Open115Reference) error       { return nil }
+func (*manager115Tool) Delete(context.Context, Open115Reference, bool) error { return nil }
+func (*manager115Tool) ValidateReference(Open115Reference) error             { return nil }
 
 func TestDownloadTaskManagerKeepsGenericPersistenceAndResumesReceipt(t *testing.T) {
 	d, creator := setupDownloadManagerDB(t)

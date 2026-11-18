@@ -122,7 +122,7 @@ last durable `submitting` state becomes `unknown`. Tasks with `unknown` or
 through the retry endpoints. Verify the cloud account before intentionally
 creating a new download.
 
-## Optionally remove the cloud download record
+## Optionally remove the cloud download record and source files
 
 The existing deletion endpoints accept `delete_cloud_record=true`:
 
@@ -138,10 +138,12 @@ deletion and response format. Local deletion does not cancel a running download.
 The saved deletion marker prevents it from reappearing after a restart. If that
 marker cannot be saved, deletion reports an error and retains the task.
 
-The option must occur once with the literal value `true` or `false`. Empty,
-duplicate, malformed or other values return code 400 without deleting anything.
-It is separate from `delete_policy`, which controls the existing transfer and
-temporary-file behavior.
+Both `delete_cloud_record` and the optional `delete_source_file` must occur at
+most once with the literal value `true` or `false`; both default to `false`.
+Empty, duplicate, malformed or other values return code 400 without deleting
+anything. `delete_source_file=true` requires `delete_cloud_record=true`.
+These options are separate from `delete_policy`, which controls the existing
+transfer and temporary-file behavior.
 
 When `true`, the operation applies only to `115 Open` download tasks. Other
 tools, `115 Cloud`, and `offline_download_transfer` tasks return a conflict and
@@ -155,26 +157,43 @@ complete lookup proving absence is accepted. A currently running cloud task,
 unknown status, account change or query failure leaves the local task intact.
 Cloud requests and waits for task/account coordination are bounded by a timeout.
 
-Cloud deletion always uses `del_source_file=0`: it removes the 115 download
-record and **preserves downloaded files**. There is no new delete-files option.
-Existing transfer policies still apply independently to their files.
+Cloud deletion defaults to `del_source_file=0`, preserving downloaded files.
+To also delete the corresponding 115 files or folder, append
+`delete_source_file=true` to any of the four endpoints:
 
-The server saves cloud deletion intent before the first lookup, confirms and
-saves the cloud result, then saves the local deletion marker and removes the
-list entry. Saving intent before lookup also protects a confirmed absence whose
-later database write fails. A first attempt that proves no deletion was sent
-can reset its intent after a failed query or an ineligible cloud state, provided
-that reset is saved successfully.
+```http
+POST /api/task/offline_download/delete?tid=<ID>&delete_cloud_record=true&delete_source_file=true
+```
+
+The SDK then sends `del_source_file=1`. Existing transfer policies still apply
+independently. For cross-storage downloads, finish the transfer before removing
+the 115 source files it still needs.
+
+The server synchronously saves cloud deletion intent and the source file option
+before the first lookup. It then saves the confirmed result, saves the local
+deletion marker and removes the list entry. Saving intent before lookup also
+protects a confirmed absence whose later database write fails. A first attempt
+that proves no deletion was sent can reset its intent and file option after a
+failed query or an ineligible cloud state, provided that reset is saved successfully.
 
 An uncertain deletion remains queryable. Explicitly retrying `deleting` or
 `unknown` cleanup only checks the cloud record: reliable absence completes local
-cleanup, while any existing record returns code 409 with reason
+cleanup when files were kept, while any existing record returns code 409 with reason
 `cloud_delete_unknown` without sending another delete. The API cannot determine
 whether that hash belongs to the original record or a newly created download.
 When a confirmed `deleted` record appears again, the reason is
 `cloud_record_reappeared`. These protections also apply after a database failure
 and process restart. Inspect the original cloud account before further action;
 local-only deletion is still available.
+
+When source file deletion was requested, absence confirms only the record.
+Only an explicit successful deletion response for `del_source_file=1` confirms
+file deletion. A lost response, or an already absent record on the first lookup,
+leaves `source_file_delete_state=unknown`; the local task is retained with reason
+`source_file_delete_unconfirmed` even when `cloud_state=deleted`. Repeated
+reconciliation never sends another delete. Subsequent cloud-cleanup requests
+must keep the original file option or receive `delete_option_conflict`.
+Older snapshots without a file option restore as keeping files.
 
 The 115 API has no task generation or conditional-delete parameter. Coordination
 covers this OpenList process; another client can recreate the same hash between
@@ -196,12 +215,14 @@ returns `data.results`, with the same structure for every target:
         "task_id": "<removed task ID>",
         "local_deleted": true,
         "cloud_state": "deleted",
+        "source_file_delete_state": "none",
         "code": 200
       },
       {
         "task_id": "<retained task ID>",
         "local_deleted": false,
         "cloud_state": "none",
+        "source_file_delete_state": "none",
         "code": 409,
         "reason": "cloud_task_active",
         "error": "<explanation>"
@@ -235,6 +256,20 @@ with `local_deleted: false`. Keep that task ID and retry its cleanup rather than
 creating another download. On restart, interrupted `deleting` becomes `unknown`;
 cleanup is never automatically sent during recovery.
 
+`source_file_delete_state` is independent from the cloud record state:
+
+| Value | Meaning |
+| --- | --- |
+| `none` | Source file deletion was not requested |
+| `deleting` | The source file deletion option has been saved |
+| `unknown` | File deletion has not been confirmed; record absence is insufficient |
+| `deleted` | 115 explicitly confirmed the deletion request with source files selected |
+
+When files are requested, clients must also require this state to be `deleted`
+before treating the whole cleanup as successful. A local write failure can
+retain a confirmed file result in memory; after a restart, only a successfully
+saved confirmation remains known. Interrupted file deletion restores as `unknown`.
+
 ### Advertised availability
 
 115 Open task responses also include:
@@ -244,8 +279,12 @@ cleanup is never automatically sent during recovery.
 | `can_delete_cloud_record` | Whether the local task and current storage binding allow a cloud-cleanup attempt |
 | `cloud_delete_unavailable_reason` | An availability reason code, empty when an attempt is allowed |
 | `cloud_delete_state` | The saved or currently known cleanup state |
+| `can_delete_source_file` | Whether the source file option is supported for this task and its saved cleanup intent |
+| `source_file_delete_state` | The independent source file deletion outcome |
 
 Computing availability does not query 115. A task may advertise availability
 while its cloud counterpart is still active; the deletion request checks again
 and returns a conflict. Clients must tolerate missing fields when connected to
-an older backend, and should keep the cloud-cleanup option unchecked by default.
+an older backend. Enable source file deletion only when its capability is explicitly
+`true`; keep both deletion options unchecked by default. A prior cleanup that kept
+files cannot be upgraded to deleting them.

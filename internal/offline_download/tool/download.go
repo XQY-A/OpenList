@@ -23,27 +23,29 @@ import (
 
 type DownloadTask struct {
 	task.TaskExtension
-	Url               string       `json:"url"`
-	DstDirPath        string       `json:"dst_dir_path"`
-	TempDir           string       `json:"temp_dir"`
-	DeletePolicy      DeletePolicy `json:"delete_policy"`
-	Toolname          string       `json:"toolname"`
-	Status            string       `json:"-"`
-	Signal            chan int     `json:"-"`
-	GID               string       `json:"-"`
-	tool              Tool
-	callStatusRetried int
-	mu                sync.RWMutex
-	persistMu         sync.Mutex
-	operationMu       *contextMutex
-	runMu             sync.Mutex
-	retired           bool
-	persist           func()
-	cancel            context.CancelFunc
-	persistErr        error
-	open115           *model.OfflineDownload115Task
-	open115Store      offline115Store
-	cloudName         string
+	Url                   string       `json:"url"`
+	DstDirPath            string       `json:"dst_dir_path"`
+	TempDir               string       `json:"temp_dir"`
+	DeletePolicy          DeletePolicy `json:"delete_policy"`
+	Toolname              string       `json:"toolname"`
+	Status                string       `json:"-"`
+	Signal                chan int     `json:"-"`
+	GID                   string       `json:"-"`
+	tool                  Tool
+	callStatusRetried     int
+	mu                    sync.RWMutex
+	persistMu             sync.Mutex
+	operationMu           *contextMutex
+	runMu                 sync.Mutex
+	retired               bool
+	persist               func()
+	cancel                context.CancelFunc
+	persistErr            error
+	open115               *model.OfflineDownload115Task
+	open115Store          offline115Store
+	cloudName             string
+	deleteSourceFile      bool
+	sourceFileDeleteState string
 }
 
 func (t *DownloadTask) Run() error {

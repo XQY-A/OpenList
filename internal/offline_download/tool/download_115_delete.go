@@ -15,14 +15,20 @@ const (
 	CloudDeleteDeleting = "deleting"
 	CloudDeleteUnknown  = "unknown"
 	CloudDeleteDeleted  = "deleted"
+
+	SourceFileDeleteNone     = "none"
+	SourceFileDeleteDeleting = "deleting"
+	SourceFileDeleteUnknown  = "unknown"
+	SourceFileDeleteDeleted  = "deleted"
 )
 
 // CloudDeleteResult separates a confirmed cloud outcome from local cleanup.
 // The cloud record may already be deleted even if saving that fact or the
 // local tombstone fails. Callers must retain the manager entry on any error.
 type CloudDeleteResult struct {
-	CloudState   string `json:"cloud_state"`
-	LocalDeleted bool   `json:"local_deleted"`
+	CloudState            string `json:"cloud_state"`
+	SourceFileDeleteState string `json:"source_file_delete_state"`
+	LocalDeleted          bool   `json:"local_deleted"`
 }
 
 // CloudDeleteError carries a stable reason for API clients while preserving
@@ -63,6 +69,13 @@ func (t *DownloadTask) cloudDeleteStateLocked() string {
 	return t.open115.CloudDeleteState
 }
 
+func (t *DownloadTask) sourceFileDeleteStateLocked() string {
+	if t.sourceFileDeleteState == "" {
+		return SourceFileDeleteNone
+	}
+	return t.sourceFileDeleteState
+}
+
 // Only task-local checks belong under mu. Driver lookup and binding validation
 // run after releasing it, because resolving the tool can acquire the same lock.
 func (t *DownloadTask) cloudDeleteAllowedLocked() *CloudDeleteError {
@@ -89,23 +102,36 @@ func (t *DownloadTask) cloudDeleteAllowedLocked() *CloudDeleteError {
 	default:
 		return cloudDeleteConflict("cleanup_state_invalid", "115 Open task has an unsupported cleanup state")
 	}
+	fileState := t.sourceFileDeleteStateLocked()
+	switch fileState {
+	case SourceFileDeleteNone, SourceFileDeleteDeleting, SourceFileDeleteUnknown, SourceFileDeleteDeleted:
+	default:
+		return cloudDeleteConflict("cleanup_state_invalid", "115 Open task has an unsupported source file deletion state")
+	}
+	if t.deleteSourceFile != (fileState != SourceFileDeleteNone) ||
+		(t.deleteSourceFile && t.cloudDeleteStateLocked() == CloudDeleteNone) {
+		return cloudDeleteConflict("cleanup_state_invalid", "115 Open task has inconsistent source file deletion intent")
+	}
 	return nil
 }
 
 func (t *DownloadTask) cloudDeleteResult() CloudDeleteResult {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
-	return CloudDeleteResult{CloudState: t.cloudDeleteStateLocked()}
+	return CloudDeleteResult{
+		CloudState: t.cloudDeleteStateLocked(), SourceFileDeleteState: t.sourceFileDeleteStateLocked(),
+	}
 }
 
 // setCloudDeleteState publishes an intent or its rollback only after saving
 // it. Failed confirmation writes must instead preserve the cloud evidence in
 // memory. The caller holds operation and account locks.
-func (t *DownloadTask) setCloudDeleteState(state string) error {
+func (t *DownloadTask) setCloudDeleteState(state string, deleteSourceFile bool, fileState string) error {
 	t.persistMu.Lock()
 	defer t.persistMu.Unlock()
 	t.mu.Lock()
-	if err := t.cloudDeleteAllowedLocked(); err != nil {
+	if t.open115 == nil {
+		err := t.cloudDeleteAllowedLocked()
 		t.mu.Unlock()
 		return err
 	}
@@ -115,9 +141,25 @@ func (t *DownloadTask) setCloudDeleteState(state string) error {
 		now := time.Now()
 		record.CloudDeletedAt = &now
 	}
-	snapshot, err := json.Marshal(t.snapshot115Locked())
+	publish := func() {
+		t.open115.CloudDeleteState = state
+		t.open115.CloudDeletedAt = record.CloudDeletedAt
+		t.deleteSourceFile = deleteSourceFile
+		t.sourceFileDeleteState = fileState
+	}
+	if err := t.cloudDeleteAllowedLocked(); err != nil {
+		if state == CloudDeleteDeleted || state == CloudDeleteUnknown {
+			publish()
+		}
+		t.mu.Unlock()
+		return err
+	}
+	snapshot := t.snapshot115Locked()
+	snapshot.DeleteSourceFile = deleteSourceFile
+	snapshot.SourceFileDeleteState = fileState
+	encoded, err := json.Marshal(snapshot)
 	if err == nil {
-		record.Snapshot = string(snapshot)
+		record.Snapshot = string(encoded)
 		record.UpdatedAt = time.Now()
 	}
 	t.mu.Unlock()
@@ -126,6 +168,11 @@ func (t *DownloadTask) setCloudDeleteState(state string) error {
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	if state == CloudDeleteDeleted || state == CloudDeleteUnknown {
+		// Keep confirmed or unknown cloud evidence even if a concurrent local
+		// tombstone prevents saving it. This never authorizes another mutation.
+		publish()
+	}
 	if errors.Is(err, db.ErrOfflineDownload115TaskDeleted) {
 		// A different instance may have removed this task during Lookup.
 		// Unlike ordinary late snapshots, deletion cannot absorb this error
@@ -136,15 +183,10 @@ func (t *DownloadTask) setCloudDeleteState(state string) error {
 		return t.cloudDeleteAllowedLocked()
 	}
 	if err != nil {
-		if state == CloudDeleteDeleted || state == CloudDeleteUnknown {
-			t.open115.CloudDeleteState = state
-			t.open115.CloudDeletedAt = record.CloudDeletedAt
-		}
 		t.persistErr = fmt.Errorf("failed to persist 115 Open task: %w", err)
 		return &CloudDeleteError{Reason: "persistence_failed", Err: t.persistErr}
 	}
-	t.open115.CloudDeleteState = state
-	t.open115.CloudDeletedAt = record.CloudDeletedAt
+	publish()
 	t.open115.Snapshot = record.Snapshot
 	t.open115.UpdatedAt = record.UpdatedAt
 	t.persistErr = nil
@@ -154,10 +196,10 @@ func (t *DownloadTask) setCloudDeleteState(state string) error {
 	return nil
 }
 
-// DeleteCloudRecord deletes only the saved 115 download record, never its
-// files. Permissions are checked by the caller, which supplies a task ID rather
-// than accepting a cloud hash or account identity from the request.
-func (t *DownloadTask) DeleteCloudRecord(ctx context.Context) (CloudDeleteResult, error) {
+// DeleteCloudRecord deletes the saved 115 download record and optionally its
+// source files. Permissions are checked by the caller, which supplies a task ID
+// rather than accepting a cloud hash or account identity from the request.
+func (t *DownloadTask) DeleteCloudRecord(ctx context.Context, deleteSourceFile bool) (CloudDeleteResult, error) {
 	ctx, cancel := context.WithTimeout(ctx, open115Timeout)
 	defer cancel()
 	unlock, err := t.lockOperationContext(ctx)
@@ -194,13 +236,24 @@ func (t *DownloadTask) DeleteCloudRecord(ctx context.Context) (CloudDeleteResult
 	if err := ctx.Err(); err != nil {
 		return t.cloudDeleteResult(), &CloudDeleteError{Reason: "operation_canceled", Err: err}
 	}
-	initialState := t.cloudDeleteResult().CloudState
+	initial := t.cloudDeleteResult()
+	initialState := initial.CloudState
 	firstAttempt := initialState == CloudDeleteNone
+	t.mu.RLock()
+	optionChanged := !firstAttempt && t.deleteSourceFile != deleteSourceFile
+	t.mu.RUnlock()
+	if optionChanged {
+		return t.cloudDeleteResult(), cloudDeleteConflict("delete_option_conflict", "keep the source file deletion option of the previous cleanup request")
+	}
+	fileState := initial.SourceFileDeleteState
 	if firstAttempt {
 		// Even a reliable absence is evidence about one point in time. Save
 		// the intent before looking it up, so a crash or failed confirmation
 		// write cannot authorize deletion of a later record with this hash.
-		if err := t.setCloudDeleteState(CloudDeleteDeleting); err != nil {
+		if deleteSourceFile {
+			fileState = SourceFileDeleteDeleting
+		}
+		if err := t.setCloudDeleteState(CloudDeleteDeleting, deleteSourceFile, fileState); err != nil {
 			return t.cloudDeleteResult(), err
 		}
 	}
@@ -209,7 +262,7 @@ func (t *DownloadTask) DeleteCloudRecord(ctx context.Context) (CloudDeleteResult
 		// mutation. A durable rollback lets a later request try normally.
 		// Failure keeps the intent and therefore requires reconciliation.
 		if firstAttempt {
-			if err := t.setCloudDeleteState(CloudDeleteNone); err != nil {
+			if err := t.setCloudDeleteState(CloudDeleteNone, false, SourceFileDeleteNone); err != nil {
 				return t.cloudDeleteResult(), err
 			}
 		}
@@ -237,23 +290,36 @@ func (t *DownloadTask) DeleteCloudRecord(ctx context.Context) (CloudDeleteResult
 		}
 		// Recheck the durable row after Lookup, since another process may
 		// have written a local tombstone while this request was querying.
-		if err := t.setCloudDeleteState(CloudDeleteDeleting); err != nil {
+		if err := t.setCloudDeleteState(CloudDeleteDeleting, deleteSourceFile, fileState); err != nil {
 			return t.cloudDeleteResult(), err
 		}
 		if err := ctx.Err(); err != nil {
 			return beforeDispatchError(&CloudDeleteError{Reason: "operation_canceled", Err: err})
 		}
-		if err := client.Delete(ctx, reference); err != nil {
+		if err := client.Delete(ctx, reference, deleteSourceFile); err != nil {
 			// A failed response does not prove whether 115 applied the delete.
 			// Later attempts may only reconcile absence, never delete again.
-			saveErr := t.setCloudDeleteState(CloudDeleteUnknown)
+			if deleteSourceFile {
+				fileState = SourceFileDeleteUnknown
+			}
+			saveErr := t.setCloudDeleteState(CloudDeleteUnknown, deleteSourceFile, fileState)
 			return t.cloudDeleteResult(), cloudDeleteRequestError("cloud_delete_unknown", errors.Join(err, saveErr))
 		}
+		if deleteSourceFile {
+			fileState = SourceFileDeleteDeleted
+		}
+	} else if deleteSourceFile && fileState != SourceFileDeleteDeleted {
+		// Absence confirms only the cloud record. A lost response or a record
+		// removed by another client cannot confirm that source files were deleted.
+		fileState = SourceFileDeleteUnknown
 	}
 	// Complete these synchronous writes even if the request was canceled just
 	// after cloud confirmation. Losing that evidence would make retry unsafe.
-	if err := t.setCloudDeleteState(CloudDeleteDeleted); err != nil {
+	if err := t.setCloudDeleteState(CloudDeleteDeleted, deleteSourceFile, fileState); err != nil {
 		return t.cloudDeleteResult(), err
+	}
+	if deleteSourceFile && fileState != SourceFileDeleteDeleted {
+		return t.cloudDeleteResult(), cloudDeleteConflict("source_file_delete_unconfirmed", "the cloud record is absent but source file deletion has not been confirmed")
 	}
 	if err := t.removeLocal115(); err != nil {
 		return t.cloudDeleteResult(), &CloudDeleteError{Reason: "persistence_failed", Err: err}

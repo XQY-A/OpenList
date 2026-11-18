@@ -137,7 +137,7 @@ func TestOfflineRequestsRejectChangedAccount(t *testing.T) {
 		if _, err := d.GetOfflineTaskForAccount(context.Background(), expected, "hash"); err == nil {
 			t.Error("query accepted mismatched account")
 		}
-		if err := d.DeleteOfflineTaskForAccount(context.Background(), expected, "hash"); err == nil {
+		if err := d.DeleteOfflineTaskForAccount(context.Background(), expected, "hash", false); err == nil {
 			t.Error("deletion accepted mismatched account")
 		}
 		if err := d.WithOfflineAccount(context.Background(), expected, func() error {
@@ -202,21 +202,42 @@ func TestWithOfflineAccountValidatesContextAndCallback(t *testing.T) {
 	}
 }
 
-func TestDeleteOfflineTaskForAccountKeepsFiles(t *testing.T) {
-	d := newOfflineTestDriver(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.String() != sdk.ApiDeleteOffline || r.Method != http.MethodPost {
-			t.Errorf("unexpected request: %s %s", r.Method, r.URL)
-		}
-		if err := r.ParseForm(); err != nil {
-			t.Fatal(err)
-		}
-		if r.Form.Get("info_hash") != "Cloud-ORIGINAL-hash" || r.Form.Get("del_source_file") != "0" {
-			t.Fatalf("unsafe delete form: %v", r.Form)
-		}
-		_, _ = io.WriteString(w, `{"state":true,"data":[]}`)
-	})
-	if err := d.DeleteOfflineTaskForAccount(context.Background(), "12345", "Cloud-ORIGINAL-hash"); err != nil {
-		t.Fatal(err)
+func TestDeleteOfflineTaskForAccountSourceFileOption(t *testing.T) {
+	for _, deleteFiles := range []bool{false, true} {
+		t.Run(strconv.FormatBool(deleteFiles), func(t *testing.T) {
+			d := newOfflineTestDriver(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.String() != sdk.ApiDeleteOffline || r.Method != http.MethodPost {
+					t.Errorf("unexpected request: %s %s", r.Method, r.URL)
+				}
+				if err := r.ParseForm(); err != nil {
+					t.Fatal(err)
+				}
+				option := "0"
+				if deleteFiles {
+					option = "1"
+				}
+				if r.Form.Get("info_hash") != "Cloud-ORIGINAL-hash" || r.Form.Get("del_source_file") != option {
+					t.Fatalf("incorrect delete form: %v", r.Form)
+				}
+				_, _ = io.WriteString(w, `{"state":true,"data":[]}`)
+			})
+			if err := d.DeleteOfflineTaskForAccount(context.Background(), "12345", "Cloud-ORIGINAL-hash", deleteFiles); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestDeleteOfflineTaskForAccountRequiresConfirmation(t *testing.T) {
+	for _, response := range []string{`{}`, `{"state":false,"code":10001}`, `{"state":true,"data":`, `{"state":true,"data":{}}`} {
+		t.Run(response, func(t *testing.T) {
+			d := newOfflineTestDriver(func(w http.ResponseWriter, r *http.Request) {
+				_, _ = io.WriteString(w, response)
+			})
+			if err := d.DeleteOfflineTaskForAccount(context.Background(), "12345", "original", true); err == nil {
+				t.Fatal("missing or invalid cloud confirmation was accepted")
+			}
+		})
 	}
 }
 

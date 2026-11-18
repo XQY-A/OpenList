@@ -145,12 +145,12 @@ func (o *Open115) ValidateReference(reference tool.Open115Reference) error {
 	return err
 }
 
-func (o *Open115) Delete(ctx context.Context, reference tool.Open115Reference) error {
+func (o *Open115) Delete(ctx context.Context, reference tool.Open115Reference, deleteSourceFile bool) error {
 	storage, err := resolveReference(reference)
 	if err != nil {
 		return err
 	}
-	err = storage.DeleteOfflineTaskForAccount(ctx, reference.AccountID, reference.InfoHash)
+	err = storage.DeleteOfflineTaskForAccount(ctx, reference.AccountID, reference.InfoHash, deleteSourceFile)
 	return offlineReferenceError(err)
 }
 
@@ -189,7 +189,7 @@ func (o *Open115) Lookup(ctx context.Context, reference tool.Open115Reference) (
 func (o *Open115) Remove(task *tool.DownloadTask) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	return o.Delete(ctx, task.Open115Reference())
+	return o.Delete(ctx, task.Open115Reference(), false)
 }
 
 func (o *Open115) Status(task *tool.DownloadTask) (*tool.Status, error) {

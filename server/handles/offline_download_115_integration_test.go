@@ -107,7 +107,7 @@ func (c *lifecycle115Cloud) Lookup(ctx context.Context, reference tool.Open115Re
 	}, nil
 }
 
-func (c *lifecycle115Cloud) Delete(ctx context.Context, reference tool.Open115Reference) error {
+func (c *lifecycle115Cloud) Delete(ctx context.Context, reference tool.Open115Reference, deleteSourceFile bool) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -118,7 +118,9 @@ func (c *lifecycle115Cloud) Delete(ctx context.Context, reference tool.Open115Re
 	defer c.mu.Unlock()
 	c.deleted = append(c.deleted, reference)
 	delete(c.records, reference.InfoHash)
-	// Cloud record deletion deliberately leaves the separate file ledger intact.
+	if deleteSourceFile {
+		delete(c.files, reference.InfoHash)
+	}
 	return nil
 }
 
@@ -187,7 +189,7 @@ func assert115LifecycleInfo(t *testing.T, router *gin.Engine, user *model.User, 
 	if info.ID != id || info.State != state || info.Creator == "" || info.Error != "" {
 		t.Fatalf("unexpected task info: %s", response.Data)
 	}
-	if state == tache.StateSucceeded && (info.EndTime == nil || info.StartTime == nil || info.Progress != 100 || !info.CanDeleteCloudRecord) {
+	if state == tache.StateSucceeded && (info.EndTime == nil || info.StartTime == nil || info.Progress != 100 || !info.CanDeleteCloudRecord || !info.CanDeleteSourceFile) {
 		t.Fatalf("completed task metadata is incomplete: %s", response.Data)
 	}
 }
@@ -222,12 +224,16 @@ func assert115LifecycleLists(t *testing.T, router *gin.Engine, owner, admin, oth
 }
 
 func Test115OfflineLifecycle(t *testing.T) {
-	for _, deleteCloud := range []bool{true, false} {
-		name := "delete_cloud_record"
-		if !deleteCloud {
-			name = "default_local_delete"
-		}
-		t.Run(name, func(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		deleteCloud bool
+		deleteFiles bool
+	}{
+		{name: "delete_cloud_record", deleteCloud: true},
+		{name: "delete_cloud_record_and_files", deleteCloud: true, deleteFiles: true},
+		{name: "default_local_delete"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
 			owner := new115TaskUser(t)
 			owner.BasePath, owner.Permission = "/", 1<<2
 			if err := db.UpdateUser(owner); err != nil {
@@ -398,8 +404,11 @@ func Test115OfflineLifecycle(t *testing.T) {
 			cloud.assertLedger(t, 1, 1, 0, true, true)
 
 			path := "/delete?tid=" + taskID
-			if deleteCloud {
+			if tc.deleteCloud {
 				path += "&delete_cloud_record=true"
+			}
+			if tc.deleteFiles {
+				path += "&delete_source_file=true"
 			}
 			denied = request115Task(t, router, other, http.MethodPost, path, "")
 			if denied.Code != 404 || strings.Contains(string(denied.Data), hash) {
@@ -411,10 +420,14 @@ func Test115OfflineLifecycle(t *testing.T) {
 				t.Fatalf("delete response = %#v", removed)
 			}
 			wantCloudState, wantLookups, wantDeletes := tool.CloudDeleteNone, 1, 0
-			if deleteCloud {
+			wantFileState := tool.SourceFileDeleteNone
+			if tc.deleteFiles {
+				wantFileState = tool.SourceFileDeleteDeleted
+			}
+			if tc.deleteCloud {
 				wantCloudState, wantLookups, wantDeletes = tool.CloudDeleteDeleted, 2, 1
 				result := decodeCloudDeleteResult(t, removed)
-				if result.TaskID != taskID || !result.LocalDeleted || result.CloudState != wantCloudState || result.Code != 200 {
+				if result.TaskID != taskID || !result.LocalDeleted || result.CloudState != wantCloudState || result.SourceFileDeleteState != wantFileState || result.Code != 200 {
 					t.Fatalf("cloud deletion result = %+v", result)
 				}
 			} else if string(removed.Data) != "null" {
@@ -424,10 +437,21 @@ func Test115OfflineLifecycle(t *testing.T) {
 			if err != nil || stored.DeletedAt == nil || stored.CloudDeleteState != wantCloudState || stored.InfoHash != hash {
 				t.Fatalf("durable tombstone = %+v, error = %v", stored, err)
 			}
+			var snapshot struct {
+				DeleteSourceFile      bool   `json:"delete_source_file"`
+				SourceFileDeleteState string `json:"source_file_delete_state"`
+			}
+			if err := json.Unmarshal([]byte(stored.Snapshot), &snapshot); err != nil {
+				t.Fatal(err)
+			}
+			if snapshot.DeleteSourceFile != tc.deleteFiles ||
+				(tc.deleteCloud && snapshot.SourceFileDeleteState != wantFileState) {
+				t.Fatalf("durable file deletion result = %+v", snapshot)
+			}
 			if _, exists := restored.GetByID(taskID); exists {
 				t.Fatal("successful deletion left the task in its manager")
 			}
-			cloud.assertLedger(t, 1, wantLookups, wantDeletes, !deleteCloud, true)
+			cloud.assertLedger(t, 1, wantLookups, wantDeletes, !tc.deleteCloud, !tc.deleteFiles)
 			afterDelete := restore()
 			if len(afterDelete.GetAll()) != 0 {
 				t.Fatal("a deleted task reappeared after recovery")
@@ -440,7 +464,7 @@ func Test115OfflineLifecycle(t *testing.T) {
 					t.Fatalf("deleted task is still queryable: %#v", response)
 				}
 			}
-			cloud.assertLedger(t, 1, wantLookups, wantDeletes, !deleteCloud, true)
+			cloud.assertLedger(t, 1, wantLookups, wantDeletes, !tc.deleteCloud, !tc.deleteFiles)
 		})
 	}
 }

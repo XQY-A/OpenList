@@ -32,7 +32,7 @@ type Open115TaskStatus struct {
 type Open115Tool interface {
 	Prepare(context.Context, string) (*Open115Submission, error)
 	Lookup(context.Context, Open115Reference) (*Open115TaskStatus, error)
-	Delete(context.Context, Open115Reference) error
+	Delete(context.Context, Open115Reference, bool) error
 	ValidateReference(Open115Reference) error
 }
 

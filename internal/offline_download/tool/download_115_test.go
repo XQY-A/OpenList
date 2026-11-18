@@ -96,16 +96,17 @@ func (s *download115TestStore) snapshot() *model.OfflineDownload115Task {
 }
 
 type download115TestTool struct {
-	mu             sync.Mutex
-	reference      Open115Reference
-	prepareErr     error
-	submit         func(context.Context, string, int) (string, error)
-	lookup         func(context.Context, Open115Reference) (*Open115TaskStatus, error)
-	submissions    int
-	lookups        []Open115Reference
-	preparedPaths  []string
-	genericCalls   int
-	cloudDeletions int
+	mu                  sync.Mutex
+	reference           Open115Reference
+	prepareErr          error
+	submit              func(context.Context, string, int) (string, error)
+	lookup              func(context.Context, Open115Reference) (*Open115TaskStatus, error)
+	submissions         int
+	lookups             []Open115Reference
+	preparedPaths       []string
+	genericCalls        int
+	cloudDeletions      int
+	sourceFileDeletions int
 }
 
 func (f *download115TestTool) Name() string                             { return Open115Name }
@@ -174,9 +175,12 @@ func (f *download115TestTool) Lookup(ctx context.Context, reference Open115Refer
 	}, nil
 }
 
-func (f *download115TestTool) Delete(context.Context, Open115Reference) error {
+func (f *download115TestTool) Delete(_ context.Context, _ Open115Reference, deleteSourceFile bool) error {
 	f.mu.Lock()
 	f.cloudDeletions++
+	if deleteSourceFile {
+		f.sourceFileDeletions++
+	}
 	f.mu.Unlock()
 	return nil
 }

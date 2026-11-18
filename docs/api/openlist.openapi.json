@@ -1593,7 +1593,7 @@
         "x-go-type": "internal/offline_download/tool.CloudDeleteError",
         "x-source": {
           "file": "internal/offline_download/tool/download_115_delete.go",
-          "line": 30
+          "line": 36
         }
       },
       "internal_offline_download_tool.DeletePolicy": {
@@ -1609,6 +1609,9 @@
           "can_delete_cloud_record": {
             "type": "boolean"
           },
+          "can_delete_source_file": {
+            "type": "boolean"
+          },
           "cloud_delete_state": {
             "enum": [
               "none",
@@ -1622,6 +1625,15 @@
             "type": "string"
           },
           "info_hash": {
+            "type": "string"
+          },
+          "source_file_delete_state": {
+            "enum": [
+              "none",
+              "deleting",
+              "unknown",
+              "deleted"
+            ],
             "type": "string"
           },
           "source_url": {
@@ -4429,6 +4441,9 @@
           "can_delete_cloud_record": {
             "type": "boolean"
           },
+          "can_delete_source_file": {
+            "type": "boolean"
+          },
           "cloud_delete_state": {
             "enum": [
               "none",
@@ -4472,6 +4487,15 @@
           },
           "progress": {
             "type": "number"
+          },
+          "source_file_delete_state": {
+            "enum": [
+              "none",
+              "deleting",
+              "unknown",
+              "deleted"
+            ],
+            "type": "string"
           },
           "source_url": {
             "type": "string"
@@ -5372,6 +5396,15 @@
           "line": 38
         }
       },
+      "server_handles.taskDeleteOptions": {
+        "properties": {},
+        "type": "object",
+        "x-go-type": "server/handles.taskDeleteOptions",
+        "x-source": {
+          "file": "server/handles/task_delete.go",
+          "line": 24
+        }
+      },
       "server_handles.taskDeleteResult": {
         "properties": {
           "cloud_state": {
@@ -5393,6 +5426,15 @@
             "type": "boolean"
           },
           "reason": {
+            "type": "string"
+          },
+          "source_file_delete_state": {
+            "enum": [
+              "none",
+              "deleting",
+              "unknown",
+              "deleted"
+            ],
             "type": "string"
           },
           "task_id": {
@@ -8962,15 +9004,30 @@
     },
     "/api/admin/task/copy/clear_done": {
       "post": {
-        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
+        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。delete_source_file=true 必须配合云清理，并取得明确成功回执；记录消失不能确认文件删除。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted；请求删除文件时还需确认 source_file_delete_state=deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
         "operationId": "post__api_admin_task_copy_clear_done",
         "parameters": [
           {
-            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，保留文件。只能传一次字面值 true 或 false。",
+            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，默认保留文件。只能传一次字面值 true 或 false。",
             "in": "query",
             "name": "delete_cloud_record",
             "required": false,
             "schema": {
+              "default": "false",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "缺省/false 保留 115 源文件；true 同时删除对应文件或文件夹，必须配合 delete_cloud_record=true。只能传一次字面值 true 或 false；后续云清理须保持原选择。",
+            "in": "query",
+            "name": "delete_source_file",
+            "required": false,
+            "schema": {
+              "default": "false",
               "enum": [
                 "true",
                 "false"
@@ -9056,15 +9113,30 @@
     },
     "/api/admin/task/copy/clear_succeeded": {
       "post": {
-        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
+        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。delete_source_file=true 必须配合云清理，并取得明确成功回执；记录消失不能确认文件删除。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted；请求删除文件时还需确认 source_file_delete_state=deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
         "operationId": "post__api_admin_task_copy_clear_succeeded",
         "parameters": [
           {
-            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，保留文件。只能传一次字面值 true 或 false。",
+            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，默认保留文件。只能传一次字面值 true 或 false。",
             "in": "query",
             "name": "delete_cloud_record",
             "required": false,
             "schema": {
+              "default": "false",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "缺省/false 保留 115 源文件；true 同时删除对应文件或文件夹，必须配合 delete_cloud_record=true。只能传一次字面值 true 或 false；后续云清理须保持原选择。",
+            "in": "query",
+            "name": "delete_source_file",
+            "required": false,
+            "schema": {
+              "default": "false",
               "enum": [
                 "true",
                 "false"
@@ -9150,7 +9222,7 @@
     },
     "/api/admin/task/copy/delete": {
       "post": {
-        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
+        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。delete_source_file=true 必须配合云清理，并取得明确成功回执；记录消失不能确认文件删除。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted；请求删除文件时还需确认 source_file_delete_state=deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
         "operationId": "post__api_admin_task_copy_delete",
         "parameters": [
           {
@@ -9163,11 +9235,26 @@
             }
           },
           {
-            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，保留文件。只能传一次字面值 true 或 false。",
+            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，默认保留文件。只能传一次字面值 true 或 false。",
             "in": "query",
             "name": "delete_cloud_record",
             "required": false,
             "schema": {
+              "default": "false",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "缺省/false 保留 115 源文件；true 同时删除对应文件或文件夹，必须配合 delete_cloud_record=true。只能传一次字面值 true 或 false；后续云清理须保持原选择。",
+            "in": "query",
+            "name": "delete_source_file",
+            "required": false,
+            "schema": {
+              "default": "false",
               "enum": [
                 "true",
                 "false"
@@ -9242,15 +9329,30 @@
     },
     "/api/admin/task/copy/delete_some": {
       "post": {
-        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
+        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。delete_source_file=true 必须配合云清理，并取得明确成功回执；记录消失不能确认文件删除。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted；请求删除文件时还需确认 source_file_delete_state=deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
         "operationId": "post__api_admin_task_copy_delete_some",
         "parameters": [
           {
-            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，保留文件。只能传一次字面值 true 或 false。",
+            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，默认保留文件。只能传一次字面值 true 或 false。",
             "in": "query",
             "name": "delete_cloud_record",
             "required": false,
             "schema": {
+              "default": "false",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "缺省/false 保留 115 源文件；true 同时删除对应文件或文件夹，必须配合 delete_cloud_record=true。只能传一次字面值 true 或 false；后续云清理须保持原选择。",
+            "in": "query",
+            "name": "delete_source_file",
+            "required": false,
+            "schema": {
+              "default": "false",
               "enum": [
                 "true",
                 "false"
@@ -9836,15 +9938,30 @@
     },
     "/api/admin/task/decompress/clear_done": {
       "post": {
-        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
+        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。delete_source_file=true 必须配合云清理，并取得明确成功回执；记录消失不能确认文件删除。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted；请求删除文件时还需确认 source_file_delete_state=deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
         "operationId": "post__api_admin_task_decompress_clear_done",
         "parameters": [
           {
-            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，保留文件。只能传一次字面值 true 或 false。",
+            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，默认保留文件。只能传一次字面值 true 或 false。",
             "in": "query",
             "name": "delete_cloud_record",
             "required": false,
             "schema": {
+              "default": "false",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "缺省/false 保留 115 源文件；true 同时删除对应文件或文件夹，必须配合 delete_cloud_record=true。只能传一次字面值 true 或 false；后续云清理须保持原选择。",
+            "in": "query",
+            "name": "delete_source_file",
+            "required": false,
+            "schema": {
+              "default": "false",
               "enum": [
                 "true",
                 "false"
@@ -9930,15 +10047,30 @@
     },
     "/api/admin/task/decompress/clear_succeeded": {
       "post": {
-        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
+        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。delete_source_file=true 必须配合云清理，并取得明确成功回执；记录消失不能确认文件删除。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted；请求删除文件时还需确认 source_file_delete_state=deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
         "operationId": "post__api_admin_task_decompress_clear_succeeded",
         "parameters": [
           {
-            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，保留文件。只能传一次字面值 true 或 false。",
+            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，默认保留文件。只能传一次字面值 true 或 false。",
             "in": "query",
             "name": "delete_cloud_record",
             "required": false,
             "schema": {
+              "default": "false",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "缺省/false 保留 115 源文件；true 同时删除对应文件或文件夹，必须配合 delete_cloud_record=true。只能传一次字面值 true 或 false；后续云清理须保持原选择。",
+            "in": "query",
+            "name": "delete_source_file",
+            "required": false,
+            "schema": {
+              "default": "false",
               "enum": [
                 "true",
                 "false"
@@ -10024,7 +10156,7 @@
     },
     "/api/admin/task/decompress/delete": {
       "post": {
-        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
+        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。delete_source_file=true 必须配合云清理，并取得明确成功回执；记录消失不能确认文件删除。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted；请求删除文件时还需确认 source_file_delete_state=deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
         "operationId": "post__api_admin_task_decompress_delete",
         "parameters": [
           {
@@ -10037,11 +10169,26 @@
             }
           },
           {
-            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，保留文件。只能传一次字面值 true 或 false。",
+            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，默认保留文件。只能传一次字面值 true 或 false。",
             "in": "query",
             "name": "delete_cloud_record",
             "required": false,
             "schema": {
+              "default": "false",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "缺省/false 保留 115 源文件；true 同时删除对应文件或文件夹，必须配合 delete_cloud_record=true。只能传一次字面值 true 或 false；后续云清理须保持原选择。",
+            "in": "query",
+            "name": "delete_source_file",
+            "required": false,
+            "schema": {
+              "default": "false",
               "enum": [
                 "true",
                 "false"
@@ -10116,15 +10263,30 @@
     },
     "/api/admin/task/decompress/delete_some": {
       "post": {
-        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
+        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。delete_source_file=true 必须配合云清理，并取得明确成功回执；记录消失不能确认文件删除。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted；请求删除文件时还需确认 source_file_delete_state=deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
         "operationId": "post__api_admin_task_decompress_delete_some",
         "parameters": [
           {
-            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，保留文件。只能传一次字面值 true 或 false。",
+            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，默认保留文件。只能传一次字面值 true 或 false。",
             "in": "query",
             "name": "delete_cloud_record",
             "required": false,
             "schema": {
+              "default": "false",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "缺省/false 保留 115 源文件；true 同时删除对应文件或文件夹，必须配合 delete_cloud_record=true。只能传一次字面值 true 或 false；后续云清理须保持原选择。",
+            "in": "query",
+            "name": "delete_source_file",
+            "required": false,
+            "schema": {
+              "default": "false",
               "enum": [
                 "true",
                 "false"
@@ -10710,15 +10872,30 @@
     },
     "/api/admin/task/decompress_upload/clear_done": {
       "post": {
-        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
+        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。delete_source_file=true 必须配合云清理，并取得明确成功回执；记录消失不能确认文件删除。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted；请求删除文件时还需确认 source_file_delete_state=deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
         "operationId": "post__api_admin_task_decompress_upload_clear_done",
         "parameters": [
           {
-            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，保留文件。只能传一次字面值 true 或 false。",
+            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，默认保留文件。只能传一次字面值 true 或 false。",
             "in": "query",
             "name": "delete_cloud_record",
             "required": false,
             "schema": {
+              "default": "false",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "缺省/false 保留 115 源文件；true 同时删除对应文件或文件夹，必须配合 delete_cloud_record=true。只能传一次字面值 true 或 false；后续云清理须保持原选择。",
+            "in": "query",
+            "name": "delete_source_file",
+            "required": false,
+            "schema": {
+              "default": "false",
               "enum": [
                 "true",
                 "false"
@@ -10804,15 +10981,30 @@
     },
     "/api/admin/task/decompress_upload/clear_succeeded": {
       "post": {
-        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
+        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。delete_source_file=true 必须配合云清理，并取得明确成功回执；记录消失不能确认文件删除。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted；请求删除文件时还需确认 source_file_delete_state=deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
         "operationId": "post__api_admin_task_decompress_upload_clear_succeeded",
         "parameters": [
           {
-            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，保留文件。只能传一次字面值 true 或 false。",
+            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，默认保留文件。只能传一次字面值 true 或 false。",
             "in": "query",
             "name": "delete_cloud_record",
             "required": false,
             "schema": {
+              "default": "false",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "缺省/false 保留 115 源文件；true 同时删除对应文件或文件夹，必须配合 delete_cloud_record=true。只能传一次字面值 true 或 false；后续云清理须保持原选择。",
+            "in": "query",
+            "name": "delete_source_file",
+            "required": false,
+            "schema": {
+              "default": "false",
               "enum": [
                 "true",
                 "false"
@@ -10898,7 +11090,7 @@
     },
     "/api/admin/task/decompress_upload/delete": {
       "post": {
-        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
+        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。delete_source_file=true 必须配合云清理，并取得明确成功回执；记录消失不能确认文件删除。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted；请求删除文件时还需确认 source_file_delete_state=deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
         "operationId": "post__api_admin_task_decompress_upload_delete",
         "parameters": [
           {
@@ -10911,11 +11103,26 @@
             }
           },
           {
-            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，保留文件。只能传一次字面值 true 或 false。",
+            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，默认保留文件。只能传一次字面值 true 或 false。",
             "in": "query",
             "name": "delete_cloud_record",
             "required": false,
             "schema": {
+              "default": "false",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "缺省/false 保留 115 源文件；true 同时删除对应文件或文件夹，必须配合 delete_cloud_record=true。只能传一次字面值 true 或 false；后续云清理须保持原选择。",
+            "in": "query",
+            "name": "delete_source_file",
+            "required": false,
+            "schema": {
+              "default": "false",
               "enum": [
                 "true",
                 "false"
@@ -10990,15 +11197,30 @@
     },
     "/api/admin/task/decompress_upload/delete_some": {
       "post": {
-        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
+        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。delete_source_file=true 必须配合云清理，并取得明确成功回执；记录消失不能确认文件删除。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted；请求删除文件时还需确认 source_file_delete_state=deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
         "operationId": "post__api_admin_task_decompress_upload_delete_some",
         "parameters": [
           {
-            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，保留文件。只能传一次字面值 true 或 false。",
+            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，默认保留文件。只能传一次字面值 true 或 false。",
             "in": "query",
             "name": "delete_cloud_record",
             "required": false,
             "schema": {
+              "default": "false",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "缺省/false 保留 115 源文件；true 同时删除对应文件或文件夹，必须配合 delete_cloud_record=true。只能传一次字面值 true 或 false；后续云清理须保持原选择。",
+            "in": "query",
+            "name": "delete_source_file",
+            "required": false,
+            "schema": {
+              "default": "false",
               "enum": [
                 "true",
                 "false"
@@ -11584,15 +11806,30 @@
     },
     "/api/admin/task/move/clear_done": {
       "post": {
-        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
+        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。delete_source_file=true 必须配合云清理，并取得明确成功回执；记录消失不能确认文件删除。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted；请求删除文件时还需确认 source_file_delete_state=deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
         "operationId": "post__api_admin_task_move_clear_done",
         "parameters": [
           {
-            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，保留文件。只能传一次字面值 true 或 false。",
+            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，默认保留文件。只能传一次字面值 true 或 false。",
             "in": "query",
             "name": "delete_cloud_record",
             "required": false,
             "schema": {
+              "default": "false",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "缺省/false 保留 115 源文件；true 同时删除对应文件或文件夹，必须配合 delete_cloud_record=true。只能传一次字面值 true 或 false；后续云清理须保持原选择。",
+            "in": "query",
+            "name": "delete_source_file",
+            "required": false,
+            "schema": {
+              "default": "false",
               "enum": [
                 "true",
                 "false"
@@ -11678,15 +11915,30 @@
     },
     "/api/admin/task/move/clear_succeeded": {
       "post": {
-        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
+        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。delete_source_file=true 必须配合云清理，并取得明确成功回执；记录消失不能确认文件删除。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted；请求删除文件时还需确认 source_file_delete_state=deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
         "operationId": "post__api_admin_task_move_clear_succeeded",
         "parameters": [
           {
-            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，保留文件。只能传一次字面值 true 或 false。",
+            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，默认保留文件。只能传一次字面值 true 或 false。",
             "in": "query",
             "name": "delete_cloud_record",
             "required": false,
             "schema": {
+              "default": "false",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "缺省/false 保留 115 源文件；true 同时删除对应文件或文件夹，必须配合 delete_cloud_record=true。只能传一次字面值 true 或 false；后续云清理须保持原选择。",
+            "in": "query",
+            "name": "delete_source_file",
+            "required": false,
+            "schema": {
+              "default": "false",
               "enum": [
                 "true",
                 "false"
@@ -11772,7 +12024,7 @@
     },
     "/api/admin/task/move/delete": {
       "post": {
-        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
+        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。delete_source_file=true 必须配合云清理，并取得明确成功回执；记录消失不能确认文件删除。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted；请求删除文件时还需确认 source_file_delete_state=deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
         "operationId": "post__api_admin_task_move_delete",
         "parameters": [
           {
@@ -11785,11 +12037,26 @@
             }
           },
           {
-            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，保留文件。只能传一次字面值 true 或 false。",
+            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，默认保留文件。只能传一次字面值 true 或 false。",
             "in": "query",
             "name": "delete_cloud_record",
             "required": false,
             "schema": {
+              "default": "false",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "缺省/false 保留 115 源文件；true 同时删除对应文件或文件夹，必须配合 delete_cloud_record=true。只能传一次字面值 true 或 false；后续云清理须保持原选择。",
+            "in": "query",
+            "name": "delete_source_file",
+            "required": false,
+            "schema": {
+              "default": "false",
               "enum": [
                 "true",
                 "false"
@@ -11864,15 +12131,30 @@
     },
     "/api/admin/task/move/delete_some": {
       "post": {
-        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
+        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。delete_source_file=true 必须配合云清理，并取得明确成功回执；记录消失不能确认文件删除。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted；请求删除文件时还需确认 source_file_delete_state=deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
         "operationId": "post__api_admin_task_move_delete_some",
         "parameters": [
           {
-            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，保留文件。只能传一次字面值 true 或 false。",
+            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，默认保留文件。只能传一次字面值 true 或 false。",
             "in": "query",
             "name": "delete_cloud_record",
             "required": false,
             "schema": {
+              "default": "false",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "缺省/false 保留 115 源文件；true 同时删除对应文件或文件夹，必须配合 delete_cloud_record=true。只能传一次字面值 true 或 false；后续云清理须保持原选择。",
+            "in": "query",
+            "name": "delete_source_file",
+            "required": false,
+            "schema": {
+              "default": "false",
               "enum": [
                 "true",
                 "false"
@@ -12458,15 +12740,30 @@
     },
     "/api/admin/task/offline_download/clear_done": {
       "post": {
-        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
+        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。delete_source_file=true 必须配合云清理，并取得明确成功回执；记录消失不能确认文件删除。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted；请求删除文件时还需确认 source_file_delete_state=deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
         "operationId": "post__api_admin_task_offline_download_clear_done",
         "parameters": [
           {
-            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，保留文件。只能传一次字面值 true 或 false。",
+            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，默认保留文件。只能传一次字面值 true 或 false。",
             "in": "query",
             "name": "delete_cloud_record",
             "required": false,
             "schema": {
+              "default": "false",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "缺省/false 保留 115 源文件；true 同时删除对应文件或文件夹，必须配合 delete_cloud_record=true。只能传一次字面值 true 或 false；后续云清理须保持原选择。",
+            "in": "query",
+            "name": "delete_source_file",
+            "required": false,
+            "schema": {
+              "default": "false",
               "enum": [
                 "true",
                 "false"
@@ -12552,15 +12849,30 @@
     },
     "/api/admin/task/offline_download/clear_succeeded": {
       "post": {
-        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
+        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。delete_source_file=true 必须配合云清理，并取得明确成功回执；记录消失不能确认文件删除。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted；请求删除文件时还需确认 source_file_delete_state=deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
         "operationId": "post__api_admin_task_offline_download_clear_succeeded",
         "parameters": [
           {
-            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，保留文件。只能传一次字面值 true 或 false。",
+            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，默认保留文件。只能传一次字面值 true 或 false。",
             "in": "query",
             "name": "delete_cloud_record",
             "required": false,
             "schema": {
+              "default": "false",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "缺省/false 保留 115 源文件；true 同时删除对应文件或文件夹，必须配合 delete_cloud_record=true。只能传一次字面值 true 或 false；后续云清理须保持原选择。",
+            "in": "query",
+            "name": "delete_source_file",
+            "required": false,
+            "schema": {
+              "default": "false",
               "enum": [
                 "true",
                 "false"
@@ -12646,7 +12958,7 @@
     },
     "/api/admin/task/offline_download/delete": {
       "post": {
-        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
+        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。delete_source_file=true 必须配合云清理，并取得明确成功回执；记录消失不能确认文件删除。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted；请求删除文件时还需确认 source_file_delete_state=deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
         "operationId": "post__api_admin_task_offline_download_delete",
         "parameters": [
           {
@@ -12659,11 +12971,26 @@
             }
           },
           {
-            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，保留文件。只能传一次字面值 true 或 false。",
+            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，默认保留文件。只能传一次字面值 true 或 false。",
             "in": "query",
             "name": "delete_cloud_record",
             "required": false,
             "schema": {
+              "default": "false",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "缺省/false 保留 115 源文件；true 同时删除对应文件或文件夹，必须配合 delete_cloud_record=true。只能传一次字面值 true 或 false；后续云清理须保持原选择。",
+            "in": "query",
+            "name": "delete_source_file",
+            "required": false,
+            "schema": {
+              "default": "false",
               "enum": [
                 "true",
                 "false"
@@ -12738,15 +13065,30 @@
     },
     "/api/admin/task/offline_download/delete_some": {
       "post": {
-        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
+        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。delete_source_file=true 必须配合云清理，并取得明确成功回执；记录消失不能确认文件删除。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted；请求删除文件时还需确认 source_file_delete_state=deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
         "operationId": "post__api_admin_task_offline_download_delete_some",
         "parameters": [
           {
-            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，保留文件。只能传一次字面值 true 或 false。",
+            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，默认保留文件。只能传一次字面值 true 或 false。",
             "in": "query",
             "name": "delete_cloud_record",
             "required": false,
             "schema": {
+              "default": "false",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "缺省/false 保留 115 源文件；true 同时删除对应文件或文件夹，必须配合 delete_cloud_record=true。只能传一次字面值 true 或 false；后续云清理须保持原选择。",
+            "in": "query",
+            "name": "delete_source_file",
+            "required": false,
+            "schema": {
+              "default": "false",
               "enum": [
                 "true",
                 "false"
@@ -13332,15 +13674,30 @@
     },
     "/api/admin/task/offline_download_transfer/clear_done": {
       "post": {
-        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
+        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。delete_source_file=true 必须配合云清理，并取得明确成功回执；记录消失不能确认文件删除。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted；请求删除文件时还需确认 source_file_delete_state=deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
         "operationId": "post__api_admin_task_offline_download_transfer_clear_done",
         "parameters": [
           {
-            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，保留文件。只能传一次字面值 true 或 false。",
+            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，默认保留文件。只能传一次字面值 true 或 false。",
             "in": "query",
             "name": "delete_cloud_record",
             "required": false,
             "schema": {
+              "default": "false",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "缺省/false 保留 115 源文件；true 同时删除对应文件或文件夹，必须配合 delete_cloud_record=true。只能传一次字面值 true 或 false；后续云清理须保持原选择。",
+            "in": "query",
+            "name": "delete_source_file",
+            "required": false,
+            "schema": {
+              "default": "false",
               "enum": [
                 "true",
                 "false"
@@ -13426,15 +13783,30 @@
     },
     "/api/admin/task/offline_download_transfer/clear_succeeded": {
       "post": {
-        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
+        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。delete_source_file=true 必须配合云清理，并取得明确成功回执；记录消失不能确认文件删除。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted；请求删除文件时还需确认 source_file_delete_state=deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
         "operationId": "post__api_admin_task_offline_download_transfer_clear_succeeded",
         "parameters": [
           {
-            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，保留文件。只能传一次字面值 true 或 false。",
+            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，默认保留文件。只能传一次字面值 true 或 false。",
             "in": "query",
             "name": "delete_cloud_record",
             "required": false,
             "schema": {
+              "default": "false",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "缺省/false 保留 115 源文件；true 同时删除对应文件或文件夹，必须配合 delete_cloud_record=true。只能传一次字面值 true 或 false；后续云清理须保持原选择。",
+            "in": "query",
+            "name": "delete_source_file",
+            "required": false,
+            "schema": {
+              "default": "false",
               "enum": [
                 "true",
                 "false"
@@ -13520,7 +13892,7 @@
     },
     "/api/admin/task/offline_download_transfer/delete": {
       "post": {
-        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
+        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。delete_source_file=true 必须配合云清理，并取得明确成功回执；记录消失不能确认文件删除。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted；请求删除文件时还需确认 source_file_delete_state=deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
         "operationId": "post__api_admin_task_offline_download_transfer_delete",
         "parameters": [
           {
@@ -13533,11 +13905,26 @@
             }
           },
           {
-            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，保留文件。只能传一次字面值 true 或 false。",
+            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，默认保留文件。只能传一次字面值 true 或 false。",
             "in": "query",
             "name": "delete_cloud_record",
             "required": false,
             "schema": {
+              "default": "false",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "缺省/false 保留 115 源文件；true 同时删除对应文件或文件夹，必须配合 delete_cloud_record=true。只能传一次字面值 true 或 false；后续云清理须保持原选择。",
+            "in": "query",
+            "name": "delete_source_file",
+            "required": false,
+            "schema": {
+              "default": "false",
               "enum": [
                 "true",
                 "false"
@@ -13612,15 +13999,30 @@
     },
     "/api/admin/task/offline_download_transfer/delete_some": {
       "post": {
-        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
+        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。delete_source_file=true 必须配合云清理，并取得明确成功回执；记录消失不能确认文件删除。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted；请求删除文件时还需确认 source_file_delete_state=deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
         "operationId": "post__api_admin_task_offline_download_transfer_delete_some",
         "parameters": [
           {
-            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，保留文件。只能传一次字面值 true 或 false。",
+            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，默认保留文件。只能传一次字面值 true 或 false。",
             "in": "query",
             "name": "delete_cloud_record",
             "required": false,
             "schema": {
+              "default": "false",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "缺省/false 保留 115 源文件；true 同时删除对应文件或文件夹，必须配合 delete_cloud_record=true。只能传一次字面值 true 或 false；后续云清理须保持原选择。",
+            "in": "query",
+            "name": "delete_source_file",
+            "required": false,
+            "schema": {
+              "default": "false",
               "enum": [
                 "true",
                 "false"
@@ -14206,15 +14608,30 @@
     },
     "/api/admin/task/seed_generate/clear_done": {
       "post": {
-        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
+        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。delete_source_file=true 必须配合云清理，并取得明确成功回执；记录消失不能确认文件删除。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted；请求删除文件时还需确认 source_file_delete_state=deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
         "operationId": "post__api_admin_task_seed_generate_clear_done",
         "parameters": [
           {
-            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，保留文件。只能传一次字面值 true 或 false。",
+            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，默认保留文件。只能传一次字面值 true 或 false。",
             "in": "query",
             "name": "delete_cloud_record",
             "required": false,
             "schema": {
+              "default": "false",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "缺省/false 保留 115 源文件；true 同时删除对应文件或文件夹，必须配合 delete_cloud_record=true。只能传一次字面值 true 或 false；后续云清理须保持原选择。",
+            "in": "query",
+            "name": "delete_source_file",
+            "required": false,
+            "schema": {
+              "default": "false",
               "enum": [
                 "true",
                 "false"
@@ -14300,15 +14717,30 @@
     },
     "/api/admin/task/seed_generate/clear_succeeded": {
       "post": {
-        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
+        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。delete_source_file=true 必须配合云清理，并取得明确成功回执；记录消失不能确认文件删除。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted；请求删除文件时还需确认 source_file_delete_state=deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
         "operationId": "post__api_admin_task_seed_generate_clear_succeeded",
         "parameters": [
           {
-            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，保留文件。只能传一次字面值 true 或 false。",
+            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，默认保留文件。只能传一次字面值 true 或 false。",
             "in": "query",
             "name": "delete_cloud_record",
             "required": false,
             "schema": {
+              "default": "false",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "缺省/false 保留 115 源文件；true 同时删除对应文件或文件夹，必须配合 delete_cloud_record=true。只能传一次字面值 true 或 false；后续云清理须保持原选择。",
+            "in": "query",
+            "name": "delete_source_file",
+            "required": false,
+            "schema": {
+              "default": "false",
               "enum": [
                 "true",
                 "false"
@@ -14394,7 +14826,7 @@
     },
     "/api/admin/task/seed_generate/delete": {
       "post": {
-        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
+        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。delete_source_file=true 必须配合云清理，并取得明确成功回执；记录消失不能确认文件删除。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted；请求删除文件时还需确认 source_file_delete_state=deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
         "operationId": "post__api_admin_task_seed_generate_delete",
         "parameters": [
           {
@@ -14407,11 +14839,26 @@
             }
           },
           {
-            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，保留文件。只能传一次字面值 true 或 false。",
+            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，默认保留文件。只能传一次字面值 true 或 false。",
             "in": "query",
             "name": "delete_cloud_record",
             "required": false,
             "schema": {
+              "default": "false",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "缺省/false 保留 115 源文件；true 同时删除对应文件或文件夹，必须配合 delete_cloud_record=true。只能传一次字面值 true 或 false；后续云清理须保持原选择。",
+            "in": "query",
+            "name": "delete_source_file",
+            "required": false,
+            "schema": {
+              "default": "false",
               "enum": [
                 "true",
                 "false"
@@ -14486,15 +14933,30 @@
     },
     "/api/admin/task/seed_generate/delete_some": {
       "post": {
-        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
+        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。delete_source_file=true 必须配合云清理，并取得明确成功回执；记录消失不能确认文件删除。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted；请求删除文件时还需确认 source_file_delete_state=deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
         "operationId": "post__api_admin_task_seed_generate_delete_some",
         "parameters": [
           {
-            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，保留文件。只能传一次字面值 true 或 false。",
+            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，默认保留文件。只能传一次字面值 true 或 false。",
             "in": "query",
             "name": "delete_cloud_record",
             "required": false,
             "schema": {
+              "default": "false",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "缺省/false 保留 115 源文件；true 同时删除对应文件或文件夹，必须配合 delete_cloud_record=true。只能传一次字面值 true 或 false；后续云清理须保持原选择。",
+            "in": "query",
+            "name": "delete_source_file",
+            "required": false,
+            "schema": {
+              "default": "false",
               "enum": [
                 "true",
                 "false"
@@ -15080,15 +15542,30 @@
     },
     "/api/admin/task/seed_save/clear_done": {
       "post": {
-        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
+        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。delete_source_file=true 必须配合云清理，并取得明确成功回执；记录消失不能确认文件删除。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted；请求删除文件时还需确认 source_file_delete_state=deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
         "operationId": "post__api_admin_task_seed_save_clear_done",
         "parameters": [
           {
-            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，保留文件。只能传一次字面值 true 或 false。",
+            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，默认保留文件。只能传一次字面值 true 或 false。",
             "in": "query",
             "name": "delete_cloud_record",
             "required": false,
             "schema": {
+              "default": "false",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "缺省/false 保留 115 源文件；true 同时删除对应文件或文件夹，必须配合 delete_cloud_record=true。只能传一次字面值 true 或 false；后续云清理须保持原选择。",
+            "in": "query",
+            "name": "delete_source_file",
+            "required": false,
+            "schema": {
+              "default": "false",
               "enum": [
                 "true",
                 "false"
@@ -15174,15 +15651,30 @@
     },
     "/api/admin/task/seed_save/clear_succeeded": {
       "post": {
-        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
+        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。delete_source_file=true 必须配合云清理，并取得明确成功回执；记录消失不能确认文件删除。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted；请求删除文件时还需确认 source_file_delete_state=deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
         "operationId": "post__api_admin_task_seed_save_clear_succeeded",
         "parameters": [
           {
-            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，保留文件。只能传一次字面值 true 或 false。",
+            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，默认保留文件。只能传一次字面值 true 或 false。",
             "in": "query",
             "name": "delete_cloud_record",
             "required": false,
             "schema": {
+              "default": "false",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "缺省/false 保留 115 源文件；true 同时删除对应文件或文件夹，必须配合 delete_cloud_record=true。只能传一次字面值 true 或 false；后续云清理须保持原选择。",
+            "in": "query",
+            "name": "delete_source_file",
+            "required": false,
+            "schema": {
+              "default": "false",
               "enum": [
                 "true",
                 "false"
@@ -15268,7 +15760,7 @@
     },
     "/api/admin/task/seed_save/delete": {
       "post": {
-        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
+        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。delete_source_file=true 必须配合云清理，并取得明确成功回执；记录消失不能确认文件删除。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted；请求删除文件时还需确认 source_file_delete_state=deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
         "operationId": "post__api_admin_task_seed_save_delete",
         "parameters": [
           {
@@ -15281,11 +15773,26 @@
             }
           },
           {
-            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，保留文件。只能传一次字面值 true 或 false。",
+            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，默认保留文件。只能传一次字面值 true 或 false。",
             "in": "query",
             "name": "delete_cloud_record",
             "required": false,
             "schema": {
+              "default": "false",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "缺省/false 保留 115 源文件；true 同时删除对应文件或文件夹，必须配合 delete_cloud_record=true。只能传一次字面值 true 或 false；后续云清理须保持原选择。",
+            "in": "query",
+            "name": "delete_source_file",
+            "required": false,
+            "schema": {
+              "default": "false",
               "enum": [
                 "true",
                 "false"
@@ -15360,15 +15867,30 @@
     },
     "/api/admin/task/seed_save/delete_some": {
       "post": {
-        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
+        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。delete_source_file=true 必须配合云清理，并取得明确成功回执；记录消失不能确认文件删除。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted；请求删除文件时还需确认 source_file_delete_state=deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
         "operationId": "post__api_admin_task_seed_save_delete_some",
         "parameters": [
           {
-            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，保留文件。只能传一次字面值 true 或 false。",
+            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，默认保留文件。只能传一次字面值 true 或 false。",
             "in": "query",
             "name": "delete_cloud_record",
             "required": false,
             "schema": {
+              "default": "false",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "缺省/false 保留 115 源文件；true 同时删除对应文件或文件夹，必须配合 delete_cloud_record=true。只能传一次字面值 true 或 false；后续云清理须保持原选择。",
+            "in": "query",
+            "name": "delete_source_file",
+            "required": false,
+            "schema": {
+              "default": "false",
               "enum": [
                 "true",
                 "false"
@@ -15792,15 +16314,30 @@
     },
     "/api/admin/task/upload/clear_done": {
       "post": {
-        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
+        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。delete_source_file=true 必须配合云清理，并取得明确成功回执；记录消失不能确认文件删除。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted；请求删除文件时还需确认 source_file_delete_state=deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
         "operationId": "post__api_admin_task_upload_clear_done",
         "parameters": [
           {
-            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，保留文件。只能传一次字面值 true 或 false。",
+            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，默认保留文件。只能传一次字面值 true 或 false。",
             "in": "query",
             "name": "delete_cloud_record",
             "required": false,
             "schema": {
+              "default": "false",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "缺省/false 保留 115 源文件；true 同时删除对应文件或文件夹，必须配合 delete_cloud_record=true。只能传一次字面值 true 或 false；后续云清理须保持原选择。",
+            "in": "query",
+            "name": "delete_source_file",
+            "required": false,
+            "schema": {
+              "default": "false",
               "enum": [
                 "true",
                 "false"
@@ -15886,15 +16423,30 @@
     },
     "/api/admin/task/upload/clear_succeeded": {
       "post": {
-        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
+        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。delete_source_file=true 必须配合云清理，并取得明确成功回执；记录消失不能确认文件删除。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted；请求删除文件时还需确认 source_file_delete_state=deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
         "operationId": "post__api_admin_task_upload_clear_succeeded",
         "parameters": [
           {
-            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，保留文件。只能传一次字面值 true 或 false。",
+            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，默认保留文件。只能传一次字面值 true 或 false。",
             "in": "query",
             "name": "delete_cloud_record",
             "required": false,
             "schema": {
+              "default": "false",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "缺省/false 保留 115 源文件；true 同时删除对应文件或文件夹，必须配合 delete_cloud_record=true。只能传一次字面值 true 或 false；后续云清理须保持原选择。",
+            "in": "query",
+            "name": "delete_source_file",
+            "required": false,
+            "schema": {
+              "default": "false",
               "enum": [
                 "true",
                 "false"
@@ -15980,7 +16532,7 @@
     },
     "/api/admin/task/upload/delete": {
       "post": {
-        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
+        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。delete_source_file=true 必须配合云清理，并取得明确成功回执；记录消失不能确认文件删除。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted；请求删除文件时还需确认 source_file_delete_state=deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
         "operationId": "post__api_admin_task_upload_delete",
         "parameters": [
           {
@@ -15993,11 +16545,26 @@
             }
           },
           {
-            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，保留文件。只能传一次字面值 true 或 false。",
+            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，默认保留文件。只能传一次字面值 true 或 false。",
             "in": "query",
             "name": "delete_cloud_record",
             "required": false,
             "schema": {
+              "default": "false",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "缺省/false 保留 115 源文件；true 同时删除对应文件或文件夹，必须配合 delete_cloud_record=true。只能传一次字面值 true 或 false；后续云清理须保持原选择。",
+            "in": "query",
+            "name": "delete_source_file",
+            "required": false,
+            "schema": {
+              "default": "false",
               "enum": [
                 "true",
                 "false"
@@ -16072,15 +16639,30 @@
     },
     "/api/admin/task/upload/delete_some": {
       "post": {
-        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
+        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。delete_source_file=true 必须配合云清理，并取得明确成功回执；记录消失不能确认文件删除。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted；请求删除文件时还需确认 source_file_delete_state=deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
         "operationId": "post__api_admin_task_upload_delete_some",
         "parameters": [
           {
-            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，保留文件。只能传一次字面值 true 或 false。",
+            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，默认保留文件。只能传一次字面值 true 或 false。",
             "in": "query",
             "name": "delete_cloud_record",
             "required": false,
             "schema": {
+              "default": "false",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "缺省/false 保留 115 源文件；true 同时删除对应文件或文件夹，必须配合 delete_cloud_record=true。只能传一次字面值 true 或 false；后续云清理须保持原选择。",
+            "in": "query",
+            "name": "delete_source_file",
+            "required": false,
+            "schema": {
+              "default": "false",
               "enum": [
                 "true",
                 "false"
@@ -26827,15 +27409,30 @@
     },
     "/api/task/copy/clear_done": {
       "post": {
-        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
+        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。delete_source_file=true 必须配合云清理，并取得明确成功回执；记录消失不能确认文件删除。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted；请求删除文件时还需确认 source_file_delete_state=deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
         "operationId": "post__api_task_copy_clear_done",
         "parameters": [
           {
-            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，保留文件。只能传一次字面值 true 或 false。",
+            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，默认保留文件。只能传一次字面值 true 或 false。",
             "in": "query",
             "name": "delete_cloud_record",
             "required": false,
             "schema": {
+              "default": "false",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "缺省/false 保留 115 源文件；true 同时删除对应文件或文件夹，必须配合 delete_cloud_record=true。只能传一次字面值 true 或 false；后续云清理须保持原选择。",
+            "in": "query",
+            "name": "delete_source_file",
+            "required": false,
+            "schema": {
+              "default": "false",
               "enum": [
                 "true",
                 "false"
@@ -26921,15 +27518,30 @@
     },
     "/api/task/copy/clear_succeeded": {
       "post": {
-        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
+        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。delete_source_file=true 必须配合云清理，并取得明确成功回执；记录消失不能确认文件删除。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted；请求删除文件时还需确认 source_file_delete_state=deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
         "operationId": "post__api_task_copy_clear_succeeded",
         "parameters": [
           {
-            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，保留文件。只能传一次字面值 true 或 false。",
+            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，默认保留文件。只能传一次字面值 true 或 false。",
             "in": "query",
             "name": "delete_cloud_record",
             "required": false,
             "schema": {
+              "default": "false",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "缺省/false 保留 115 源文件；true 同时删除对应文件或文件夹，必须配合 delete_cloud_record=true。只能传一次字面值 true 或 false；后续云清理须保持原选择。",
+            "in": "query",
+            "name": "delete_source_file",
+            "required": false,
+            "schema": {
+              "default": "false",
               "enum": [
                 "true",
                 "false"
@@ -27015,7 +27627,7 @@
     },
     "/api/task/copy/delete": {
       "post": {
-        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
+        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。delete_source_file=true 必须配合云清理，并取得明确成功回执；记录消失不能确认文件删除。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted；请求删除文件时还需确认 source_file_delete_state=deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
         "operationId": "post__api_task_copy_delete",
         "parameters": [
           {
@@ -27028,11 +27640,26 @@
             }
           },
           {
-            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，保留文件。只能传一次字面值 true 或 false。",
+            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，默认保留文件。只能传一次字面值 true 或 false。",
             "in": "query",
             "name": "delete_cloud_record",
             "required": false,
             "schema": {
+              "default": "false",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "缺省/false 保留 115 源文件；true 同时删除对应文件或文件夹，必须配合 delete_cloud_record=true。只能传一次字面值 true 或 false；后续云清理须保持原选择。",
+            "in": "query",
+            "name": "delete_source_file",
+            "required": false,
+            "schema": {
+              "default": "false",
               "enum": [
                 "true",
                 "false"
@@ -27107,15 +27734,30 @@
     },
     "/api/task/copy/delete_some": {
       "post": {
-        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
+        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。delete_source_file=true 必须配合云清理，并取得明确成功回执；记录消失不能确认文件删除。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted；请求删除文件时还需确认 source_file_delete_state=deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
         "operationId": "post__api_task_copy_delete_some",
         "parameters": [
           {
-            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，保留文件。只能传一次字面值 true 或 false。",
+            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，默认保留文件。只能传一次字面值 true 或 false。",
             "in": "query",
             "name": "delete_cloud_record",
             "required": false,
             "schema": {
+              "default": "false",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "缺省/false 保留 115 源文件；true 同时删除对应文件或文件夹，必须配合 delete_cloud_record=true。只能传一次字面值 true 或 false；后续云清理须保持原选择。",
+            "in": "query",
+            "name": "delete_source_file",
+            "required": false,
+            "schema": {
+              "default": "false",
               "enum": [
                 "true",
                 "false"
@@ -27701,15 +28343,30 @@
     },
     "/api/task/decompress/clear_done": {
       "post": {
-        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
+        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。delete_source_file=true 必须配合云清理，并取得明确成功回执；记录消失不能确认文件删除。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted；请求删除文件时还需确认 source_file_delete_state=deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
         "operationId": "post__api_task_decompress_clear_done",
         "parameters": [
           {
-            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，保留文件。只能传一次字面值 true 或 false。",
+            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，默认保留文件。只能传一次字面值 true 或 false。",
             "in": "query",
             "name": "delete_cloud_record",
             "required": false,
             "schema": {
+              "default": "false",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "缺省/false 保留 115 源文件；true 同时删除对应文件或文件夹，必须配合 delete_cloud_record=true。只能传一次字面值 true 或 false；后续云清理须保持原选择。",
+            "in": "query",
+            "name": "delete_source_file",
+            "required": false,
+            "schema": {
+              "default": "false",
               "enum": [
                 "true",
                 "false"
@@ -27795,15 +28452,30 @@
     },
     "/api/task/decompress/clear_succeeded": {
       "post": {
-        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
+        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。delete_source_file=true 必须配合云清理，并取得明确成功回执；记录消失不能确认文件删除。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted；请求删除文件时还需确认 source_file_delete_state=deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
         "operationId": "post__api_task_decompress_clear_succeeded",
         "parameters": [
           {
-            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，保留文件。只能传一次字面值 true 或 false。",
+            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，默认保留文件。只能传一次字面值 true 或 false。",
             "in": "query",
             "name": "delete_cloud_record",
             "required": false,
             "schema": {
+              "default": "false",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "缺省/false 保留 115 源文件；true 同时删除对应文件或文件夹，必须配合 delete_cloud_record=true。只能传一次字面值 true 或 false；后续云清理须保持原选择。",
+            "in": "query",
+            "name": "delete_source_file",
+            "required": false,
+            "schema": {
+              "default": "false",
               "enum": [
                 "true",
                 "false"
@@ -27889,7 +28561,7 @@
     },
     "/api/task/decompress/delete": {
       "post": {
-        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
+        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。delete_source_file=true 必须配合云清理，并取得明确成功回执；记录消失不能确认文件删除。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted；请求删除文件时还需确认 source_file_delete_state=deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
         "operationId": "post__api_task_decompress_delete",
         "parameters": [
           {
@@ -27902,11 +28574,26 @@
             }
           },
           {
-            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，保留文件。只能传一次字面值 true 或 false。",
+            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，默认保留文件。只能传一次字面值 true 或 false。",
             "in": "query",
             "name": "delete_cloud_record",
             "required": false,
             "schema": {
+              "default": "false",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "缺省/false 保留 115 源文件；true 同时删除对应文件或文件夹，必须配合 delete_cloud_record=true。只能传一次字面值 true 或 false；后续云清理须保持原选择。",
+            "in": "query",
+            "name": "delete_source_file",
+            "required": false,
+            "schema": {
+              "default": "false",
               "enum": [
                 "true",
                 "false"
@@ -27981,15 +28668,30 @@
     },
     "/api/task/decompress/delete_some": {
       "post": {
-        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
+        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。delete_source_file=true 必须配合云清理，并取得明确成功回执；记录消失不能确认文件删除。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted；请求删除文件时还需确认 source_file_delete_state=deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
         "operationId": "post__api_task_decompress_delete_some",
         "parameters": [
           {
-            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，保留文件。只能传一次字面值 true 或 false。",
+            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，默认保留文件。只能传一次字面值 true 或 false。",
             "in": "query",
             "name": "delete_cloud_record",
             "required": false,
             "schema": {
+              "default": "false",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "缺省/false 保留 115 源文件；true 同时删除对应文件或文件夹，必须配合 delete_cloud_record=true。只能传一次字面值 true 或 false；后续云清理须保持原选择。",
+            "in": "query",
+            "name": "delete_source_file",
+            "required": false,
+            "schema": {
+              "default": "false",
               "enum": [
                 "true",
                 "false"
@@ -28575,15 +29277,30 @@
     },
     "/api/task/decompress_upload/clear_done": {
       "post": {
-        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
+        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。delete_source_file=true 必须配合云清理，并取得明确成功回执；记录消失不能确认文件删除。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted；请求删除文件时还需确认 source_file_delete_state=deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
         "operationId": "post__api_task_decompress_upload_clear_done",
         "parameters": [
           {
-            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，保留文件。只能传一次字面值 true 或 false。",
+            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，默认保留文件。只能传一次字面值 true 或 false。",
             "in": "query",
             "name": "delete_cloud_record",
             "required": false,
             "schema": {
+              "default": "false",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "缺省/false 保留 115 源文件；true 同时删除对应文件或文件夹，必须配合 delete_cloud_record=true。只能传一次字面值 true 或 false；后续云清理须保持原选择。",
+            "in": "query",
+            "name": "delete_source_file",
+            "required": false,
+            "schema": {
+              "default": "false",
               "enum": [
                 "true",
                 "false"
@@ -28669,15 +29386,30 @@
     },
     "/api/task/decompress_upload/clear_succeeded": {
       "post": {
-        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
+        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。delete_source_file=true 必须配合云清理，并取得明确成功回执；记录消失不能确认文件删除。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted；请求删除文件时还需确认 source_file_delete_state=deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
         "operationId": "post__api_task_decompress_upload_clear_succeeded",
         "parameters": [
           {
-            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，保留文件。只能传一次字面值 true 或 false。",
+            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，默认保留文件。只能传一次字面值 true 或 false。",
             "in": "query",
             "name": "delete_cloud_record",
             "required": false,
             "schema": {
+              "default": "false",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "缺省/false 保留 115 源文件；true 同时删除对应文件或文件夹，必须配合 delete_cloud_record=true。只能传一次字面值 true 或 false；后续云清理须保持原选择。",
+            "in": "query",
+            "name": "delete_source_file",
+            "required": false,
+            "schema": {
+              "default": "false",
               "enum": [
                 "true",
                 "false"
@@ -28763,7 +29495,7 @@
     },
     "/api/task/decompress_upload/delete": {
       "post": {
-        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
+        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。delete_source_file=true 必须配合云清理，并取得明确成功回执；记录消失不能确认文件删除。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted；请求删除文件时还需确认 source_file_delete_state=deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
         "operationId": "post__api_task_decompress_upload_delete",
         "parameters": [
           {
@@ -28776,11 +29508,26 @@
             }
           },
           {
-            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，保留文件。只能传一次字面值 true 或 false。",
+            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，默认保留文件。只能传一次字面值 true 或 false。",
             "in": "query",
             "name": "delete_cloud_record",
             "required": false,
             "schema": {
+              "default": "false",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "缺省/false 保留 115 源文件；true 同时删除对应文件或文件夹，必须配合 delete_cloud_record=true。只能传一次字面值 true 或 false；后续云清理须保持原选择。",
+            "in": "query",
+            "name": "delete_source_file",
+            "required": false,
+            "schema": {
+              "default": "false",
               "enum": [
                 "true",
                 "false"
@@ -28855,15 +29602,30 @@
     },
     "/api/task/decompress_upload/delete_some": {
       "post": {
-        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
+        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。delete_source_file=true 必须配合云清理，并取得明确成功回执；记录消失不能确认文件删除。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted；请求删除文件时还需确认 source_file_delete_state=deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
         "operationId": "post__api_task_decompress_upload_delete_some",
         "parameters": [
           {
-            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，保留文件。只能传一次字面值 true 或 false。",
+            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，默认保留文件。只能传一次字面值 true 或 false。",
             "in": "query",
             "name": "delete_cloud_record",
             "required": false,
             "schema": {
+              "default": "false",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "缺省/false 保留 115 源文件；true 同时删除对应文件或文件夹，必须配合 delete_cloud_record=true。只能传一次字面值 true 或 false；后续云清理须保持原选择。",
+            "in": "query",
+            "name": "delete_source_file",
+            "required": false,
+            "schema": {
+              "default": "false",
               "enum": [
                 "true",
                 "false"
@@ -29449,15 +30211,30 @@
     },
     "/api/task/move/clear_done": {
       "post": {
-        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
+        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。delete_source_file=true 必须配合云清理，并取得明确成功回执；记录消失不能确认文件删除。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted；请求删除文件时还需确认 source_file_delete_state=deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
         "operationId": "post__api_task_move_clear_done",
         "parameters": [
           {
-            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，保留文件。只能传一次字面值 true 或 false。",
+            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，默认保留文件。只能传一次字面值 true 或 false。",
             "in": "query",
             "name": "delete_cloud_record",
             "required": false,
             "schema": {
+              "default": "false",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "缺省/false 保留 115 源文件；true 同时删除对应文件或文件夹，必须配合 delete_cloud_record=true。只能传一次字面值 true 或 false；后续云清理须保持原选择。",
+            "in": "query",
+            "name": "delete_source_file",
+            "required": false,
+            "schema": {
+              "default": "false",
               "enum": [
                 "true",
                 "false"
@@ -29543,15 +30320,30 @@
     },
     "/api/task/move/clear_succeeded": {
       "post": {
-        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
+        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。delete_source_file=true 必须配合云清理，并取得明确成功回执；记录消失不能确认文件删除。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted；请求删除文件时还需确认 source_file_delete_state=deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
         "operationId": "post__api_task_move_clear_succeeded",
         "parameters": [
           {
-            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，保留文件。只能传一次字面值 true 或 false。",
+            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，默认保留文件。只能传一次字面值 true 或 false。",
             "in": "query",
             "name": "delete_cloud_record",
             "required": false,
             "schema": {
+              "default": "false",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "缺省/false 保留 115 源文件；true 同时删除对应文件或文件夹，必须配合 delete_cloud_record=true。只能传一次字面值 true 或 false；后续云清理须保持原选择。",
+            "in": "query",
+            "name": "delete_source_file",
+            "required": false,
+            "schema": {
+              "default": "false",
               "enum": [
                 "true",
                 "false"
@@ -29637,7 +30429,7 @@
     },
     "/api/task/move/delete": {
       "post": {
-        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
+        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。delete_source_file=true 必须配合云清理，并取得明确成功回执；记录消失不能确认文件删除。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted；请求删除文件时还需确认 source_file_delete_state=deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
         "operationId": "post__api_task_move_delete",
         "parameters": [
           {
@@ -29650,11 +30442,26 @@
             }
           },
           {
-            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，保留文件。只能传一次字面值 true 或 false。",
+            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，默认保留文件。只能传一次字面值 true 或 false。",
             "in": "query",
             "name": "delete_cloud_record",
             "required": false,
             "schema": {
+              "default": "false",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "缺省/false 保留 115 源文件；true 同时删除对应文件或文件夹，必须配合 delete_cloud_record=true。只能传一次字面值 true 或 false；后续云清理须保持原选择。",
+            "in": "query",
+            "name": "delete_source_file",
+            "required": false,
+            "schema": {
+              "default": "false",
               "enum": [
                 "true",
                 "false"
@@ -29729,15 +30536,30 @@
     },
     "/api/task/move/delete_some": {
       "post": {
-        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
+        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。delete_source_file=true 必须配合云清理，并取得明确成功回执；记录消失不能确认文件删除。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted；请求删除文件时还需确认 source_file_delete_state=deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
         "operationId": "post__api_task_move_delete_some",
         "parameters": [
           {
-            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，保留文件。只能传一次字面值 true 或 false。",
+            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，默认保留文件。只能传一次字面值 true 或 false。",
             "in": "query",
             "name": "delete_cloud_record",
             "required": false,
             "schema": {
+              "default": "false",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "缺省/false 保留 115 源文件；true 同时删除对应文件或文件夹，必须配合 delete_cloud_record=true。只能传一次字面值 true 或 false；后续云清理须保持原选择。",
+            "in": "query",
+            "name": "delete_source_file",
+            "required": false,
+            "schema": {
+              "default": "false",
               "enum": [
                 "true",
                 "false"
@@ -30323,15 +31145,30 @@
     },
     "/api/task/offline_download/clear_done": {
       "post": {
-        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
+        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。delete_source_file=true 必须配合云清理，并取得明确成功回执；记录消失不能确认文件删除。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted；请求删除文件时还需确认 source_file_delete_state=deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
         "operationId": "post__api_task_offline_download_clear_done",
         "parameters": [
           {
-            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，保留文件。只能传一次字面值 true 或 false。",
+            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，默认保留文件。只能传一次字面值 true 或 false。",
             "in": "query",
             "name": "delete_cloud_record",
             "required": false,
             "schema": {
+              "default": "false",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "缺省/false 保留 115 源文件；true 同时删除对应文件或文件夹，必须配合 delete_cloud_record=true。只能传一次字面值 true 或 false；后续云清理须保持原选择。",
+            "in": "query",
+            "name": "delete_source_file",
+            "required": false,
+            "schema": {
+              "default": "false",
               "enum": [
                 "true",
                 "false"
@@ -30417,15 +31254,30 @@
     },
     "/api/task/offline_download/clear_succeeded": {
       "post": {
-        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
+        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。delete_source_file=true 必须配合云清理，并取得明确成功回执；记录消失不能确认文件删除。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted；请求删除文件时还需确认 source_file_delete_state=deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
         "operationId": "post__api_task_offline_download_clear_succeeded",
         "parameters": [
           {
-            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，保留文件。只能传一次字面值 true 或 false。",
+            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，默认保留文件。只能传一次字面值 true 或 false。",
             "in": "query",
             "name": "delete_cloud_record",
             "required": false,
             "schema": {
+              "default": "false",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "缺省/false 保留 115 源文件；true 同时删除对应文件或文件夹，必须配合 delete_cloud_record=true。只能传一次字面值 true 或 false；后续云清理须保持原选择。",
+            "in": "query",
+            "name": "delete_source_file",
+            "required": false,
+            "schema": {
+              "default": "false",
               "enum": [
                 "true",
                 "false"
@@ -30511,7 +31363,7 @@
     },
     "/api/task/offline_download/delete": {
       "post": {
-        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
+        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。delete_source_file=true 必须配合云清理，并取得明确成功回执；记录消失不能确认文件删除。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted；请求删除文件时还需确认 source_file_delete_state=deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
         "operationId": "post__api_task_offline_download_delete",
         "parameters": [
           {
@@ -30524,11 +31376,26 @@
             }
           },
           {
-            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，保留文件。只能传一次字面值 true 或 false。",
+            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，默认保留文件。只能传一次字面值 true 或 false。",
             "in": "query",
             "name": "delete_cloud_record",
             "required": false,
             "schema": {
+              "default": "false",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "缺省/false 保留 115 源文件；true 同时删除对应文件或文件夹，必须配合 delete_cloud_record=true。只能传一次字面值 true 或 false；后续云清理须保持原选择。",
+            "in": "query",
+            "name": "delete_source_file",
+            "required": false,
+            "schema": {
+              "default": "false",
               "enum": [
                 "true",
                 "false"
@@ -30603,15 +31470,30 @@
     },
     "/api/task/offline_download/delete_some": {
       "post": {
-        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
+        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。delete_source_file=true 必须配合云清理，并取得明确成功回执；记录消失不能确认文件删除。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted；请求删除文件时还需确认 source_file_delete_state=deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
         "operationId": "post__api_task_offline_download_delete_some",
         "parameters": [
           {
-            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，保留文件。只能传一次字面值 true 或 false。",
+            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，默认保留文件。只能传一次字面值 true 或 false。",
             "in": "query",
             "name": "delete_cloud_record",
             "required": false,
             "schema": {
+              "default": "false",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "缺省/false 保留 115 源文件；true 同时删除对应文件或文件夹，必须配合 delete_cloud_record=true。只能传一次字面值 true 或 false；后续云清理须保持原选择。",
+            "in": "query",
+            "name": "delete_source_file",
+            "required": false,
+            "schema": {
+              "default": "false",
               "enum": [
                 "true",
                 "false"
@@ -31197,15 +32079,30 @@
     },
     "/api/task/offline_download_transfer/clear_done": {
       "post": {
-        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
+        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。delete_source_file=true 必须配合云清理，并取得明确成功回执；记录消失不能确认文件删除。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted；请求删除文件时还需确认 source_file_delete_state=deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
         "operationId": "post__api_task_offline_download_transfer_clear_done",
         "parameters": [
           {
-            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，保留文件。只能传一次字面值 true 或 false。",
+            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，默认保留文件。只能传一次字面值 true 或 false。",
             "in": "query",
             "name": "delete_cloud_record",
             "required": false,
             "schema": {
+              "default": "false",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "缺省/false 保留 115 源文件；true 同时删除对应文件或文件夹，必须配合 delete_cloud_record=true。只能传一次字面值 true 或 false；后续云清理须保持原选择。",
+            "in": "query",
+            "name": "delete_source_file",
+            "required": false,
+            "schema": {
+              "default": "false",
               "enum": [
                 "true",
                 "false"
@@ -31291,15 +32188,30 @@
     },
     "/api/task/offline_download_transfer/clear_succeeded": {
       "post": {
-        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
+        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。delete_source_file=true 必须配合云清理，并取得明确成功回执；记录消失不能确认文件删除。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted；请求删除文件时还需确认 source_file_delete_state=deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
         "operationId": "post__api_task_offline_download_transfer_clear_succeeded",
         "parameters": [
           {
-            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，保留文件。只能传一次字面值 true 或 false。",
+            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，默认保留文件。只能传一次字面值 true 或 false。",
             "in": "query",
             "name": "delete_cloud_record",
             "required": false,
             "schema": {
+              "default": "false",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "缺省/false 保留 115 源文件；true 同时删除对应文件或文件夹，必须配合 delete_cloud_record=true。只能传一次字面值 true 或 false；后续云清理须保持原选择。",
+            "in": "query",
+            "name": "delete_source_file",
+            "required": false,
+            "schema": {
+              "default": "false",
               "enum": [
                 "true",
                 "false"
@@ -31385,7 +32297,7 @@
     },
     "/api/task/offline_download_transfer/delete": {
       "post": {
-        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
+        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。delete_source_file=true 必须配合云清理，并取得明确成功回执；记录消失不能确认文件删除。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted；请求删除文件时还需确认 source_file_delete_state=deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
         "operationId": "post__api_task_offline_download_transfer_delete",
         "parameters": [
           {
@@ -31398,11 +32310,26 @@
             }
           },
           {
-            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，保留文件。只能传一次字面值 true 或 false。",
+            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，默认保留文件。只能传一次字面值 true 或 false。",
             "in": "query",
             "name": "delete_cloud_record",
             "required": false,
             "schema": {
+              "default": "false",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "缺省/false 保留 115 源文件；true 同时删除对应文件或文件夹，必须配合 delete_cloud_record=true。只能传一次字面值 true 或 false；后续云清理须保持原选择。",
+            "in": "query",
+            "name": "delete_source_file",
+            "required": false,
+            "schema": {
+              "default": "false",
               "enum": [
                 "true",
                 "false"
@@ -31477,15 +32404,30 @@
     },
     "/api/task/offline_download_transfer/delete_some": {
       "post": {
-        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
+        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。delete_source_file=true 必须配合云清理，并取得明确成功回执；记录消失不能确认文件删除。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted；请求删除文件时还需确认 source_file_delete_state=deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
         "operationId": "post__api_task_offline_download_transfer_delete_some",
         "parameters": [
           {
-            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，保留文件。只能传一次字面值 true 或 false。",
+            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，默认保留文件。只能传一次字面值 true 或 false。",
             "in": "query",
             "name": "delete_cloud_record",
             "required": false,
             "schema": {
+              "default": "false",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "缺省/false 保留 115 源文件；true 同时删除对应文件或文件夹，必须配合 delete_cloud_record=true。只能传一次字面值 true 或 false；后续云清理须保持原选择。",
+            "in": "query",
+            "name": "delete_source_file",
+            "required": false,
+            "schema": {
+              "default": "false",
               "enum": [
                 "true",
                 "false"
@@ -32071,15 +33013,30 @@
     },
     "/api/task/seed_generate/clear_done": {
       "post": {
-        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
+        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。delete_source_file=true 必须配合云清理，并取得明确成功回执；记录消失不能确认文件删除。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted；请求删除文件时还需确认 source_file_delete_state=deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
         "operationId": "post__api_task_seed_generate_clear_done",
         "parameters": [
           {
-            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，保留文件。只能传一次字面值 true 或 false。",
+            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，默认保留文件。只能传一次字面值 true 或 false。",
             "in": "query",
             "name": "delete_cloud_record",
             "required": false,
             "schema": {
+              "default": "false",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "缺省/false 保留 115 源文件；true 同时删除对应文件或文件夹，必须配合 delete_cloud_record=true。只能传一次字面值 true 或 false；后续云清理须保持原选择。",
+            "in": "query",
+            "name": "delete_source_file",
+            "required": false,
+            "schema": {
+              "default": "false",
               "enum": [
                 "true",
                 "false"
@@ -32165,15 +33122,30 @@
     },
     "/api/task/seed_generate/clear_succeeded": {
       "post": {
-        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
+        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。delete_source_file=true 必须配合云清理，并取得明确成功回执；记录消失不能确认文件删除。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted；请求删除文件时还需确认 source_file_delete_state=deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
         "operationId": "post__api_task_seed_generate_clear_succeeded",
         "parameters": [
           {
-            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，保留文件。只能传一次字面值 true 或 false。",
+            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，默认保留文件。只能传一次字面值 true 或 false。",
             "in": "query",
             "name": "delete_cloud_record",
             "required": false,
             "schema": {
+              "default": "false",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "缺省/false 保留 115 源文件；true 同时删除对应文件或文件夹，必须配合 delete_cloud_record=true。只能传一次字面值 true 或 false；后续云清理须保持原选择。",
+            "in": "query",
+            "name": "delete_source_file",
+            "required": false,
+            "schema": {
+              "default": "false",
               "enum": [
                 "true",
                 "false"
@@ -32259,7 +33231,7 @@
     },
     "/api/task/seed_generate/delete": {
       "post": {
-        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
+        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。delete_source_file=true 必须配合云清理，并取得明确成功回执；记录消失不能确认文件删除。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted；请求删除文件时还需确认 source_file_delete_state=deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
         "operationId": "post__api_task_seed_generate_delete",
         "parameters": [
           {
@@ -32272,11 +33244,26 @@
             }
           },
           {
-            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，保留文件。只能传一次字面值 true 或 false。",
+            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，默认保留文件。只能传一次字面值 true 或 false。",
             "in": "query",
             "name": "delete_cloud_record",
             "required": false,
             "schema": {
+              "default": "false",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "缺省/false 保留 115 源文件；true 同时删除对应文件或文件夹，必须配合 delete_cloud_record=true。只能传一次字面值 true 或 false；后续云清理须保持原选择。",
+            "in": "query",
+            "name": "delete_source_file",
+            "required": false,
+            "schema": {
+              "default": "false",
               "enum": [
                 "true",
                 "false"
@@ -32351,15 +33338,30 @@
     },
     "/api/task/seed_generate/delete_some": {
       "post": {
-        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
+        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。delete_source_file=true 必须配合云清理，并取得明确成功回执；记录消失不能确认文件删除。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted；请求删除文件时还需确认 source_file_delete_state=deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
         "operationId": "post__api_task_seed_generate_delete_some",
         "parameters": [
           {
-            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，保留文件。只能传一次字面值 true 或 false。",
+            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，默认保留文件。只能传一次字面值 true 或 false。",
             "in": "query",
             "name": "delete_cloud_record",
             "required": false,
             "schema": {
+              "default": "false",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "缺省/false 保留 115 源文件；true 同时删除对应文件或文件夹，必须配合 delete_cloud_record=true。只能传一次字面值 true 或 false；后续云清理须保持原选择。",
+            "in": "query",
+            "name": "delete_source_file",
+            "required": false,
+            "schema": {
+              "default": "false",
               "enum": [
                 "true",
                 "false"
@@ -32945,15 +33947,30 @@
     },
     "/api/task/seed_save/clear_done": {
       "post": {
-        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
+        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。delete_source_file=true 必须配合云清理，并取得明确成功回执；记录消失不能确认文件删除。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted；请求删除文件时还需确认 source_file_delete_state=deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
         "operationId": "post__api_task_seed_save_clear_done",
         "parameters": [
           {
-            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，保留文件。只能传一次字面值 true 或 false。",
+            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，默认保留文件。只能传一次字面值 true 或 false。",
             "in": "query",
             "name": "delete_cloud_record",
             "required": false,
             "schema": {
+              "default": "false",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "缺省/false 保留 115 源文件；true 同时删除对应文件或文件夹，必须配合 delete_cloud_record=true。只能传一次字面值 true 或 false；后续云清理须保持原选择。",
+            "in": "query",
+            "name": "delete_source_file",
+            "required": false,
+            "schema": {
+              "default": "false",
               "enum": [
                 "true",
                 "false"
@@ -33039,15 +34056,30 @@
     },
     "/api/task/seed_save/clear_succeeded": {
       "post": {
-        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
+        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。delete_source_file=true 必须配合云清理，并取得明确成功回执；记录消失不能确认文件删除。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted；请求删除文件时还需确认 source_file_delete_state=deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
         "operationId": "post__api_task_seed_save_clear_succeeded",
         "parameters": [
           {
-            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，保留文件。只能传一次字面值 true 或 false。",
+            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，默认保留文件。只能传一次字面值 true 或 false。",
             "in": "query",
             "name": "delete_cloud_record",
             "required": false,
             "schema": {
+              "default": "false",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "缺省/false 保留 115 源文件；true 同时删除对应文件或文件夹，必须配合 delete_cloud_record=true。只能传一次字面值 true 或 false；后续云清理须保持原选择。",
+            "in": "query",
+            "name": "delete_source_file",
+            "required": false,
+            "schema": {
+              "default": "false",
               "enum": [
                 "true",
                 "false"
@@ -33133,7 +34165,7 @@
     },
     "/api/task/seed_save/delete": {
       "post": {
-        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
+        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。delete_source_file=true 必须配合云清理，并取得明确成功回执；记录消失不能确认文件删除。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted；请求删除文件时还需确认 source_file_delete_state=deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
         "operationId": "post__api_task_seed_save_delete",
         "parameters": [
           {
@@ -33146,11 +34178,26 @@
             }
           },
           {
-            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，保留文件。只能传一次字面值 true 或 false。",
+            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，默认保留文件。只能传一次字面值 true 或 false。",
             "in": "query",
             "name": "delete_cloud_record",
             "required": false,
             "schema": {
+              "default": "false",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "缺省/false 保留 115 源文件；true 同时删除对应文件或文件夹，必须配合 delete_cloud_record=true。只能传一次字面值 true 或 false；后续云清理须保持原选择。",
+            "in": "query",
+            "name": "delete_source_file",
+            "required": false,
+            "schema": {
+              "default": "false",
               "enum": [
                 "true",
                 "false"
@@ -33225,15 +34272,30 @@
     },
     "/api/task/seed_save/delete_some": {
       "post": {
-        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
+        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。delete_source_file=true 必须配合云清理，并取得明确成功回执；记录消失不能确认文件删除。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted；请求删除文件时还需确认 source_file_delete_state=deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
         "operationId": "post__api_task_seed_save_delete_some",
         "parameters": [
           {
-            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，保留文件。只能传一次字面值 true 或 false。",
+            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，默认保留文件。只能传一次字面值 true 或 false。",
             "in": "query",
             "name": "delete_cloud_record",
             "required": false,
             "schema": {
+              "default": "false",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "缺省/false 保留 115 源文件；true 同时删除对应文件或文件夹，必须配合 delete_cloud_record=true。只能传一次字面值 true 或 false；后续云清理须保持原选择。",
+            "in": "query",
+            "name": "delete_source_file",
+            "required": false,
+            "schema": {
+              "default": "false",
               "enum": [
                 "true",
                 "false"
@@ -33657,15 +34719,30 @@
     },
     "/api/task/upload/clear_done": {
       "post": {
-        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
+        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。delete_source_file=true 必须配合云清理，并取得明确成功回执；记录消失不能确认文件删除。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted；请求删除文件时还需确认 source_file_delete_state=deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
         "operationId": "post__api_task_upload_clear_done",
         "parameters": [
           {
-            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，保留文件。只能传一次字面值 true 或 false。",
+            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，默认保留文件。只能传一次字面值 true 或 false。",
             "in": "query",
             "name": "delete_cloud_record",
             "required": false,
             "schema": {
+              "default": "false",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "缺省/false 保留 115 源文件；true 同时删除对应文件或文件夹，必须配合 delete_cloud_record=true。只能传一次字面值 true 或 false；后续云清理须保持原选择。",
+            "in": "query",
+            "name": "delete_source_file",
+            "required": false,
+            "schema": {
+              "default": "false",
               "enum": [
                 "true",
                 "false"
@@ -33751,15 +34828,30 @@
     },
     "/api/task/upload/clear_succeeded": {
       "post": {
-        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
+        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。delete_source_file=true 必须配合云清理，并取得明确成功回执；记录消失不能确认文件删除。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted；请求删除文件时还需确认 source_file_delete_state=deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
         "operationId": "post__api_task_upload_clear_succeeded",
         "parameters": [
           {
-            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，保留文件。只能传一次字面值 true 或 false。",
+            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，默认保留文件。只能传一次字面值 true 或 false。",
             "in": "query",
             "name": "delete_cloud_record",
             "required": false,
             "schema": {
+              "default": "false",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "缺省/false 保留 115 源文件；true 同时删除对应文件或文件夹，必须配合 delete_cloud_record=true。只能传一次字面值 true 或 false；后续云清理须保持原选择。",
+            "in": "query",
+            "name": "delete_source_file",
+            "required": false,
+            "schema": {
+              "default": "false",
               "enum": [
                 "true",
                 "false"
@@ -33845,7 +34937,7 @@
     },
     "/api/task/upload/delete": {
       "post": {
-        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
+        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。delete_source_file=true 必须配合云清理，并取得明确成功回执；记录消失不能确认文件删除。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted；请求删除文件时还需确认 source_file_delete_state=deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
         "operationId": "post__api_task_upload_delete",
         "parameters": [
           {
@@ -33858,11 +34950,26 @@
             }
           },
           {
-            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，保留文件。只能传一次字面值 true 或 false。",
+            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，默认保留文件。只能传一次字面值 true 或 false。",
             "in": "query",
             "name": "delete_cloud_record",
             "required": false,
             "schema": {
+              "default": "false",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "缺省/false 保留 115 源文件；true 同时删除对应文件或文件夹，必须配合 delete_cloud_record=true。只能传一次字面值 true 或 false；后续云清理须保持原选择。",
+            "in": "query",
+            "name": "delete_source_file",
+            "required": false,
+            "schema": {
+              "default": "false",
               "enum": [
                 "true",
                 "false"
@@ -33937,15 +35044,30 @@
     },
     "/api/task/upload/delete_some": {
       "post": {
-        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
+        "description": "仅本地删除保留旧响应；delete_cloud_record=true 时单条返回删除结果对象，批量/clear 返回 results 数组。delete_source_file=true 必须配合云清理，并取得明确成功回执；记录消失不能确认文件删除。批量顶层业务码 200 仍可能全部失败，必须检查每项 code 和 local_deleted；请求删除文件时还需确认 source_file_delete_state=deleted。仅 115 Open 离线下载支持云清理；其他任务逐项冲突，不降级本地删除。详见 x-openlist-115-contract。",
         "operationId": "post__api_task_upload_delete_some",
         "parameters": [
           {
-            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，保留文件。只能传一次字面值 true 或 false。",
+            "description": "缺省/false 仅删除本地记录；true 校验并清理 115 Open 云下载记录，默认保留文件。只能传一次字面值 true 或 false。",
             "in": "query",
             "name": "delete_cloud_record",
             "required": false,
             "schema": {
+              "default": "false",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "缺省/false 保留 115 源文件；true 同时删除对应文件或文件夹，必须配合 delete_cloud_record=true。只能传一次字面值 true 或 false；后续云清理须保持原选择。",
+            "in": "query",
+            "name": "delete_source_file",
+            "required": false,
+            "schema": {
+              "default": "false",
               "enum": [
                 "true",
                 "false"
@@ -34751,7 +35873,7 @@
       "url": "http://localhost:5244"
     }
   ],
-  "x-openlist-115-contract": "# 115 Open offline download API\n\nFor the complete API reference for this branch, including all other OpenList\nendpoints, see [the AI reference](openlist-api.md) and\n[OpenAPI 3.1](openlist.openapi.json).\n\nThe `115 Open` tool keeps the original `info_hash` returned by 115, together\nwith the storage and account that submitted the task. The receipt is persisted\neven when general download task persistence is disabled. Treat the hash as an\nopaque string; it is not necessarily a BTIH or an ed2k file hash.\n\nSee the [usage and upgrade guide](../usage/115-open-offline.md) for the management\ninterface, transfer policies and deployment steps, and the\n[personal build guide](../development/custom-115-build.md) for paired frontend\nand backend builds.\n\nThese endpoints use the usual OpenList authentication and response envelope.\nCheck the JSON `code`: a business error is still returned with HTTP 200.\nOnly the task creator and administrators can query a task. Other users receive\nthe same 404 response as an unknown task ID.\n\n## Add downloads\n\n`POST /api/fs/add_offline_download`\n\n```json\n{\n  \"urls\": [\"<download URI>\", \"<another download URI>\"],\n  \"path\": \"/115/Downloads\",\n  \"tool\": \"115 Open\"\n}\n```\n\nAdding downloads remains asynchronous. A successful item means its local task\nhas been saved and queued, not that 115 has already accepted the download.\nThe response keeps the existing `data.tasks` array and adds `data.results` for\nrequests that explicitly select `115 Open`:\n\n```json\n{\n  \"code\": 200,\n  \"message\": \"success\",\n  \"data\": {\n    \"tasks\": [\n      {\n        \"id\": \"<local task ID>\",\n        \"tool\": \"115 Open\",\n        \"info_hash\": \"\",\n        \"submission_state\": \"pending\"\n      }\n    ],\n    \"results\": [\n      {\"index\": 0, \"task_id\": \"<local task ID>\"},\n      {\"index\": 1, \"error\": \"<reason the second task could not be created>\"}\n    ]\n  }\n}\n```\n\nThe example omits unchanged task fields. Each result's zero-based `index`\nrefers to the original `urls` array, including empty or whitespace-only items.\nAll successfully created tasks remain in `tasks`, even if another item fails.\nAt least one created task yields code 200; inspect every result for partial\nfailure. An empty batch or a batch containing only blank items yields code 400.\nIf every nonblank item fails to create, code 500 includes the per-item results.\nRequest-wide permission, path or decoding errors retain the usual error format.\nOther tools retain their existing batch response and behavior.\n\nRetry only the failed inputs after addressing their errors. Do not resubmit\nsuccessful items to obtain their hash.\n\n## Read the receipt\n\nUse the returned local task ID with any of these endpoints:\n\n| Endpoint | Result |\n| --- | --- |\n| `POST /api/task/offline_download/info?tid=<local task ID>` | One task |\n| `GET /api/task/offline_download/undone` | Tasks that have not ended |\n| `GET /api/task/offline_download/done` | Ended tasks, including restored tasks |\n\nEvery 115 Open task has these additional fields. Other task types may omit them.\n\n| Field | Meaning |\n| --- | --- |\n| `tool` | `115 Open` |\n| `source_url` | The original submitted URI, preserved when the displayed name changes |\n| `info_hash` | The exact cloud receipt, or an empty string while unavailable |\n| `submission_state` | Submission outcome, separate from download execution `state` |\n\nThe submission states are:\n\n| Value | Meaning |\n| --- | --- |\n| `pending` | Saved locally; no submission has started |\n| `submitting` | Submission intent and account binding were saved; the outcome is pending |\n| `accepted` | A cloud receipt is known; subsequent execution queries that same receipt |\n| `failed` | Preparation failed or the request was authoritatively rejected |\n| `unknown` | The request may have been accepted, but no authoritative receipt is available |\n| `legacy` | An older task lacks a reliable saved receipt or account binding |\n\nThe first add response may already contain a hash if acceptance was fast.\nOtherwise, query the same task ID until the state changes. A later task response\ncontains `\"submission_state\": \"accepted\"` and the original, nonempty `info_hash`.\nAn accepted receipt does not by itself mean the download completed; continue\nto use the existing execution state, progress and error fields.\n\nThe existing `name` keeps the `download <name> to (<destination>)` format.\nAfter a regular status lookup returns a nonblank cloud `name`, that name replaces\nthe URI in the description. The latest nonblank name is saved across restarts\nand retries; an empty cloud name retains the previous name, or the URI if no\nname is known. Use `source_url` for download links and URI searches.\nAlready finished historical tasks without a saved cloud name keep their URI\nuntil they receive another status lookup.\n\nRestarts and explicit retries preserve a known receipt and query the original\ncloud task instead of submitting it again. A receipt whose database write failed\nremains visible in memory with a persistence error; retrying first attempts to\nsave it. A crash before that write succeeds cannot recover the receipt, so the\nlast durable `submitting` state becomes `unknown`. Tasks with `unknown` or\n`legacy` state are not automatically resubmitted and cannot bypass this rule\nthrough the retry endpoints. Verify the cloud account before intentionally\ncreating a new download.\n\n## Optionally remove the cloud download record\n\nThe existing deletion endpoints accept `delete_cloud_record=true`:\n\n| Endpoint | Targets |\n| --- | --- |\n| `POST /api/task/offline_download/delete?tid=<ID>&delete_cloud_record=true` | One task |\n| `POST /api/task/offline_download/delete_some?delete_cloud_record=true` | JSON array of task IDs |\n| `POST /api/task/offline_download/clear_done?delete_cloud_record=true` | All ended tasks accessible to the caller |\n| `POST /api/task/offline_download/clear_succeeded?delete_cloud_record=true` | All successful tasks accessible to the caller |\n\nOmitting the option, or passing `false`, preserves the existing local-only\ndeletion and response format. Local deletion does not cancel a running download.\nThe saved deletion marker prevents it from reappearing after a restart. If that\nmarker cannot be saved, deletion reports an error and retains the task.\n\nThe option must occur once with the literal value `true` or `false`. Empty,\nduplicate, malformed or other values return code 400 without deleting anything.\nIt is separate from `delete_policy`, which controls the existing transfer and\ntemporary-file behavior.\n\nWhen `true`, the operation applies only to `115 Open` download tasks. Other\ntools, `115 Cloud`, and `offline_download_transfer` tasks return a conflict and\nremain in the list. A task must have a reliable cloud receipt and its original\nstorage/account binding, and its local state must be succeeded, failed or\ncanceled. Use the existing cancel action for an active local task.\n\nBefore cloud deletion, the server checks the current bound account and queries\nthe cloud task. Only cloud status `2` (completed), `-1` (failed), or a reliable\ncomplete lookup proving absence is accepted. A currently running cloud task,\nunknown status, account change or query failure leaves the local task intact.\nCloud requests and waits for task/account coordination are bounded by a timeout.\n\nCloud deletion always uses `del_source_file=0`: it removes the 115 download\nrecord and **preserves downloaded files**. There is no new delete-files option.\nExisting transfer policies still apply independently to their files.\n\nThe server saves cloud deletion intent before the first lookup, confirms and\nsaves the cloud result, then saves the local deletion marker and removes the\nlist entry. Saving intent before lookup also protects a confirmed absence whose\nlater database write fails. A first attempt that proves no deletion was sent\ncan reset its intent after a failed query or an ineligible cloud state, provided\nthat reset is saved successfully.\n\nAn uncertain deletion remains queryable. Explicitly retrying `deleting` or\n`unknown` cleanup only checks the cloud record: reliable absence completes local\ncleanup, while any existing record returns code 409 with reason\n`cloud_delete_unknown` without sending another delete. The API cannot determine\nwhether that hash belongs to the original record or a newly created download.\nWhen a confirmed `deleted` record appears again, the reason is\n`cloud_record_reappeared`. These protections also apply after a database failure\nand process restart. Inspect the original cloud account before further action;\nlocal-only deletion is still available.\n\nThe 115 API has no task generation or conditional-delete parameter. Coordination\ncovers this OpenList process; another client can recreate the same hash between\nthe cloud query and deletion. This is not an atomic check-and-delete across\nclients.\n\n### Deletion results\n\nA single `true` request returns one result in `data`. A batch or clear request\nreturns `data.results`, with the same structure for every target:\n\n```json\n{\n  \"code\": 200,\n  \"message\": \"success\",\n  \"data\": {\n    \"results\": [\n      {\n        \"task_id\": \"<removed task ID>\",\n        \"local_deleted\": true,\n        \"cloud_state\": \"deleted\",\n        \"code\": 200\n      },\n      {\n        \"task_id\": \"<retained task ID>\",\n        \"local_deleted\": false,\n        \"cloud_state\": \"none\",\n        \"code\": 409,\n        \"reason\": \"cloud_task_active\",\n        \"error\": \"<explanation>\"\n      }\n    ]\n  }\n}\n```\n\nBatch and clear responses use top-level code 200 even when some or all targets\nfail; inspect each result's `code` and `local_deleted`. Single-item errors use\nthe same error code at the top level and in the result. Permission failures and\nunknown task IDs both produce 404; state, type and binding conflicts use 409;\ncloud request or persistence failures use 500. `reason` is a machine-readable\nerror category when available, and `error` is filtered using the existing\nprivacy rules. Duplicate IDs within a `true` batch reuse their first result\nwithout sending another delete request. Failure never silently falls back to\nlocal-only deletion.\n\n`cloud_state` records the last known cleanup outcome:\n\n| Value | Meaning |\n| --- | --- |\n| `none` | No cloud deletion has been sent |\n| `deleting` | Deletion intent has been saved |\n| `unknown` | The previous attempt is uncertain; retries only reconcile confirmed absence |\n| `deleted` | Deletion or absence was confirmed; local cleanup may still need to finish |\n\nA failed local write can therefore return `cloud_state: \"deleted\"` together\nwith `local_deleted: false`. Keep that task ID and retry its cleanup rather than\ncreating another download. On restart, interrupted `deleting` becomes `unknown`;\ncleanup is never automatically sent during recovery.\n\n### Advertised availability\n\n115 Open task responses also include:\n\n| Field | Meaning |\n| --- | --- |\n| `can_delete_cloud_record` | Whether the local task and current storage binding allow a cloud-cleanup attempt |\n| `cloud_delete_unavailable_reason` | An availability reason code, empty when an attempt is allowed |\n| `cloud_delete_state` | The saved or currently known cleanup state |\n\nComputing availability does not query 115. A task may advertise availability\nwhile its cloud counterpart is still active; the deletion request checks again\nand returns a conflict. Clients must tolerate missing fields when connected to\nan older backend, and should keep the cloud-cleanup option unchecked by default.\n",
+  "x-openlist-115-contract": "# 115 Open offline download API\n\nFor the complete API reference for this branch, including all other OpenList\nendpoints, see [the AI reference](openlist-api.md) and\n[OpenAPI 3.1](openlist.openapi.json).\n\nThe `115 Open` tool keeps the original `info_hash` returned by 115, together\nwith the storage and account that submitted the task. The receipt is persisted\neven when general download task persistence is disabled. Treat the hash as an\nopaque string; it is not necessarily a BTIH or an ed2k file hash.\n\nSee the [usage and upgrade guide](../usage/115-open-offline.md) for the management\ninterface, transfer policies and deployment steps, and the\n[personal build guide](../development/custom-115-build.md) for paired frontend\nand backend builds.\n\nThese endpoints use the usual OpenList authentication and response envelope.\nCheck the JSON `code`: a business error is still returned with HTTP 200.\nOnly the task creator and administrators can query a task. Other users receive\nthe same 404 response as an unknown task ID.\n\n## Add downloads\n\n`POST /api/fs/add_offline_download`\n\n```json\n{\n  \"urls\": [\"<download URI>\", \"<another download URI>\"],\n  \"path\": \"/115/Downloads\",\n  \"tool\": \"115 Open\"\n}\n```\n\nAdding downloads remains asynchronous. A successful item means its local task\nhas been saved and queued, not that 115 has already accepted the download.\nThe response keeps the existing `data.tasks` array and adds `data.results` for\nrequests that explicitly select `115 Open`:\n\n```json\n{\n  \"code\": 200,\n  \"message\": \"success\",\n  \"data\": {\n    \"tasks\": [\n      {\n        \"id\": \"<local task ID>\",\n        \"tool\": \"115 Open\",\n        \"info_hash\": \"\",\n        \"submission_state\": \"pending\"\n      }\n    ],\n    \"results\": [\n      {\"index\": 0, \"task_id\": \"<local task ID>\"},\n      {\"index\": 1, \"error\": \"<reason the second task could not be created>\"}\n    ]\n  }\n}\n```\n\nThe example omits unchanged task fields. Each result's zero-based `index`\nrefers to the original `urls` array, including empty or whitespace-only items.\nAll successfully created tasks remain in `tasks`, even if another item fails.\nAt least one created task yields code 200; inspect every result for partial\nfailure. An empty batch or a batch containing only blank items yields code 400.\nIf every nonblank item fails to create, code 500 includes the per-item results.\nRequest-wide permission, path or decoding errors retain the usual error format.\nOther tools retain their existing batch response and behavior.\n\nRetry only the failed inputs after addressing their errors. Do not resubmit\nsuccessful items to obtain their hash.\n\n## Read the receipt\n\nUse the returned local task ID with any of these endpoints:\n\n| Endpoint | Result |\n| --- | --- |\n| `POST /api/task/offline_download/info?tid=<local task ID>` | One task |\n| `GET /api/task/offline_download/undone` | Tasks that have not ended |\n| `GET /api/task/offline_download/done` | Ended tasks, including restored tasks |\n\nEvery 115 Open task has these additional fields. Other task types may omit them.\n\n| Field | Meaning |\n| --- | --- |\n| `tool` | `115 Open` |\n| `source_url` | The original submitted URI, preserved when the displayed name changes |\n| `info_hash` | The exact cloud receipt, or an empty string while unavailable |\n| `submission_state` | Submission outcome, separate from download execution `state` |\n\nThe submission states are:\n\n| Value | Meaning |\n| --- | --- |\n| `pending` | Saved locally; no submission has started |\n| `submitting` | Submission intent and account binding were saved; the outcome is pending |\n| `accepted` | A cloud receipt is known; subsequent execution queries that same receipt |\n| `failed` | Preparation failed or the request was authoritatively rejected |\n| `unknown` | The request may have been accepted, but no authoritative receipt is available |\n| `legacy` | An older task lacks a reliable saved receipt or account binding |\n\nThe first add response may already contain a hash if acceptance was fast.\nOtherwise, query the same task ID until the state changes. A later task response\ncontains `\"submission_state\": \"accepted\"` and the original, nonempty `info_hash`.\nAn accepted receipt does not by itself mean the download completed; continue\nto use the existing execution state, progress and error fields.\n\nThe existing `name` keeps the `download <name> to (<destination>)` format.\nAfter a regular status lookup returns a nonblank cloud `name`, that name replaces\nthe URI in the description. The latest nonblank name is saved across restarts\nand retries; an empty cloud name retains the previous name, or the URI if no\nname is known. Use `source_url` for download links and URI searches.\nAlready finished historical tasks without a saved cloud name keep their URI\nuntil they receive another status lookup.\n\nRestarts and explicit retries preserve a known receipt and query the original\ncloud task instead of submitting it again. A receipt whose database write failed\nremains visible in memory with a persistence error; retrying first attempts to\nsave it. A crash before that write succeeds cannot recover the receipt, so the\nlast durable `submitting` state becomes `unknown`. Tasks with `unknown` or\n`legacy` state are not automatically resubmitted and cannot bypass this rule\nthrough the retry endpoints. Verify the cloud account before intentionally\ncreating a new download.\n\n## Optionally remove the cloud download record and source files\n\nThe existing deletion endpoints accept `delete_cloud_record=true`:\n\n| Endpoint | Targets |\n| --- | --- |\n| `POST /api/task/offline_download/delete?tid=<ID>&delete_cloud_record=true` | One task |\n| `POST /api/task/offline_download/delete_some?delete_cloud_record=true` | JSON array of task IDs |\n| `POST /api/task/offline_download/clear_done?delete_cloud_record=true` | All ended tasks accessible to the caller |\n| `POST /api/task/offline_download/clear_succeeded?delete_cloud_record=true` | All successful tasks accessible to the caller |\n\nOmitting the option, or passing `false`, preserves the existing local-only\ndeletion and response format. Local deletion does not cancel a running download.\nThe saved deletion marker prevents it from reappearing after a restart. If that\nmarker cannot be saved, deletion reports an error and retains the task.\n\nBoth `delete_cloud_record` and the optional `delete_source_file` must occur at\nmost once with the literal value `true` or `false`; both default to `false`.\nEmpty, duplicate, malformed or other values return code 400 without deleting\nanything. `delete_source_file=true` requires `delete_cloud_record=true`.\nThese options are separate from `delete_policy`, which controls the existing\ntransfer and temporary-file behavior.\n\nWhen `true`, the operation applies only to `115 Open` download tasks. Other\ntools, `115 Cloud`, and `offline_download_transfer` tasks return a conflict and\nremain in the list. A task must have a reliable cloud receipt and its original\nstorage/account binding, and its local state must be succeeded, failed or\ncanceled. Use the existing cancel action for an active local task.\n\nBefore cloud deletion, the server checks the current bound account and queries\nthe cloud task. Only cloud status `2` (completed), `-1` (failed), or a reliable\ncomplete lookup proving absence is accepted. A currently running cloud task,\nunknown status, account change or query failure leaves the local task intact.\nCloud requests and waits for task/account coordination are bounded by a timeout.\n\nCloud deletion defaults to `del_source_file=0`, preserving downloaded files.\nTo also delete the corresponding 115 files or folder, append\n`delete_source_file=true` to any of the four endpoints:\n\n```http\nPOST /api/task/offline_download/delete?tid=<ID>&delete_cloud_record=true&delete_source_file=true\n```\n\nThe SDK then sends `del_source_file=1`. Existing transfer policies still apply\nindependently. For cross-storage downloads, finish the transfer before removing\nthe 115 source files it still needs.\n\nThe server synchronously saves cloud deletion intent and the source file option\nbefore the first lookup. It then saves the confirmed result, saves the local\ndeletion marker and removes the list entry. Saving intent before lookup also\nprotects a confirmed absence whose later database write fails. A first attempt\nthat proves no deletion was sent can reset its intent and file option after a\nfailed query or an ineligible cloud state, provided that reset is saved successfully.\n\nAn uncertain deletion remains queryable. Explicitly retrying `deleting` or\n`unknown` cleanup only checks the cloud record: reliable absence completes local\ncleanup when files were kept, while any existing record returns code 409 with reason\n`cloud_delete_unknown` without sending another delete. The API cannot determine\nwhether that hash belongs to the original record or a newly created download.\nWhen a confirmed `deleted` record appears again, the reason is\n`cloud_record_reappeared`. These protections also apply after a database failure\nand process restart. Inspect the original cloud account before further action;\nlocal-only deletion is still available.\n\nWhen source file deletion was requested, absence confirms only the record.\nOnly an explicit successful deletion response for `del_source_file=1` confirms\nfile deletion. A lost response, or an already absent record on the first lookup,\nleaves `source_file_delete_state=unknown`; the local task is retained with reason\n`source_file_delete_unconfirmed` even when `cloud_state=deleted`. Repeated\nreconciliation never sends another delete. Subsequent cloud-cleanup requests\nmust keep the original file option or receive `delete_option_conflict`.\nOlder snapshots without a file option restore as keeping files.\n\nThe 115 API has no task generation or conditional-delete parameter. Coordination\ncovers this OpenList process; another client can recreate the same hash between\nthe cloud query and deletion. This is not an atomic check-and-delete across\nclients.\n\n### Deletion results\n\nA single `true` request returns one result in `data`. A batch or clear request\nreturns `data.results`, with the same structure for every target:\n\n```json\n{\n  \"code\": 200,\n  \"message\": \"success\",\n  \"data\": {\n    \"results\": [\n      {\n        \"task_id\": \"<removed task ID>\",\n        \"local_deleted\": true,\n        \"cloud_state\": \"deleted\",\n        \"source_file_delete_state\": \"none\",\n        \"code\": 200\n      },\n      {\n        \"task_id\": \"<retained task ID>\",\n        \"local_deleted\": false,\n        \"cloud_state\": \"none\",\n        \"source_file_delete_state\": \"none\",\n        \"code\": 409,\n        \"reason\": \"cloud_task_active\",\n        \"error\": \"<explanation>\"\n      }\n    ]\n  }\n}\n```\n\nBatch and clear responses use top-level code 200 even when some or all targets\nfail; inspect each result's `code` and `local_deleted`. Single-item errors use\nthe same error code at the top level and in the result. Permission failures and\nunknown task IDs both produce 404; state, type and binding conflicts use 409;\ncloud request or persistence failures use 500. `reason` is a machine-readable\nerror category when available, and `error` is filtered using the existing\nprivacy rules. Duplicate IDs within a `true` batch reuse their first result\nwithout sending another delete request. Failure never silently falls back to\nlocal-only deletion.\n\n`cloud_state` records the last known cleanup outcome:\n\n| Value | Meaning |\n| --- | --- |\n| `none` | No cloud deletion has been sent |\n| `deleting` | Deletion intent has been saved |\n| `unknown` | The previous attempt is uncertain; retries only reconcile confirmed absence |\n| `deleted` | Deletion or absence was confirmed; local cleanup may still need to finish |\n\nA failed local write can therefore return `cloud_state: \"deleted\"` together\nwith `local_deleted: false`. Keep that task ID and retry its cleanup rather than\ncreating another download. On restart, interrupted `deleting` becomes `unknown`;\ncleanup is never automatically sent during recovery.\n\n`source_file_delete_state` is independent from the cloud record state:\n\n| Value | Meaning |\n| --- | --- |\n| `none` | Source file deletion was not requested |\n| `deleting` | The source file deletion option has been saved |\n| `unknown` | File deletion has not been confirmed; record absence is insufficient |\n| `deleted` | 115 explicitly confirmed the deletion request with source files selected |\n\nWhen files are requested, clients must also require this state to be `deleted`\nbefore treating the whole cleanup as successful. A local write failure can\nretain a confirmed file result in memory; after a restart, only a successfully\nsaved confirmation remains known. Interrupted file deletion restores as `unknown`.\n\n### Advertised availability\n\n115 Open task responses also include:\n\n| Field | Meaning |\n| --- | --- |\n| `can_delete_cloud_record` | Whether the local task and current storage binding allow a cloud-cleanup attempt |\n| `cloud_delete_unavailable_reason` | An availability reason code, empty when an attempt is allowed |\n| `cloud_delete_state` | The saved or currently known cleanup state |\n| `can_delete_source_file` | Whether the source file option is supported for this task and its saved cleanup intent |\n| `source_file_delete_state` | The independent source file deletion outcome |\n\nComputing availability does not query 115. A task may advertise availability\nwhile its cloud counterpart is still active; the deletion request checks again\nand returns a conflict. Clients must tolerate missing fields when connected to\nan older backend. Enable source file deletion only when its capability is explicitly\n`true`; keep both deletion options unchecked by default. A prior cleanup that kept\nfiles cannot be upgraded to deleting them.\n",
   "x-openlist-any-extra-methods": [
     "CONNECT",
     "TRACE"
@@ -40736,9 +41858,9 @@
       "parameters": [],
       "responses": [],
       "source": {
-        "code": "func deleteManagedCloudTask[T task.TaskExtensionInfo](c *gin.Context, manager task.Manager[T], t T) taskDeleteResult {\n\tresult := taskDeleteResult{TaskID: t.GetID(), CloudState: \"none\", Code: 409}\n\tdownload, ok := any(t).(*tool.DownloadTask)\n\tif !ok || !download.Is115Open() {\n\t\tresult.Reason = \"unsupported_tool\"\n\t\tresult.Error = \"cloud record deletion is only supported for 115 Open download tasks\"\n\t\treturn result\n\t}\n\tcloud, err := download.DeleteCloudRecord(c.Request.Context())\n\tif cloud.CloudState != \"\" {\n\t\tresult.CloudState = cloud.CloudState\n\t}\n\tif err == nil && !cloud.LocalDeleted {\n\t\terr = errors.New(\"cloud cleanup did not complete local task deletion\")\n\t}\n\tif err != nil {\n\t\tresult.Code = taskOperationCode(err)\n\t\tvar cleanupErr *tool.CloudDeleteError\n\t\tif errors.As(err, &cleanupErr) {\n\t\t\tresult.Reason = cleanupErr.Reason\n\t\t}\n\t\tresult.Error = common.ErrorMessage(err)\n\t\treturn result\n\t}\n\tmanager.Remove(t.GetID())\n\tresult.LocalDeleted = true\n\tresult.Code = 200\n\treturn result\n}",
+        "code": "func deleteManagedCloudTask[T task.TaskExtensionInfo](c *gin.Context, manager task.Manager[T], t T, deleteSourceFile bool) taskDeleteResult {\n\tresult := taskDeleteResult{TaskID: t.GetID(), CloudState: \"none\", SourceFileDeleteState: \"none\", Code: 409}\n\tdownload, ok := any(t).(*tool.DownloadTask)\n\tif !ok || !download.Is115Open() {\n\t\tresult.Reason = \"unsupported_tool\"\n\t\tresult.Error = \"cloud record deletion is only supported for 115 Open download tasks\"\n\t\treturn result\n\t}\n\tcloud, err := download.DeleteCloudRecord(c.Request.Context(), deleteSourceFile)\n\tif cloud.CloudState != \"\" {\n\t\tresult.CloudState = cloud.CloudState\n\t}\n\tresult.SourceFileDeleteState = cloud.SourceFileDeleteState\n\tif err == nil && !cloud.LocalDeleted {\n\t\terr = errors.New(\"cloud cleanup did not complete local task deletion\")\n\t}\n\tif err == nil && deleteSourceFile && cloud.SourceFileDeleteState != tool.SourceFileDeleteDeleted {\n\t\terr = errors.New(\"source file deletion was not confirmed\")\n\t}\n\tif err != nil {\n\t\tresult.Code = taskOperationCode(err)\n\t\tvar cleanupErr *tool.CloudDeleteError\n\t\tif errors.As(err, &cleanupErr) {\n\t\t\tresult.Reason = cleanupErr.Reason\n\t\t}\n\t\tresult.Error = common.ErrorMessage(err)\n\t\treturn result\n\t}\n\tmanager.Remove(t.GetID())\n\tresult.LocalDeleted = true\n\tresult.Code = 200\n\treturn result\n}",
         "file": "server/handles/task_delete.go",
-        "line": 57
+        "line": 72
       },
       "types": [
         "server/handles.taskDeleteResult",
@@ -41069,7 +42191,7 @@
     "server/handles.getClearTasksHandler": {
       "bindings": [],
       "calls": [
-        "server/handles.parseDeleteCloudRecord",
+        "server/handles.parseTaskDeleteOptions",
         "server/handles.getUserInfo",
         "server/handles.canAccessTask",
         "server/handles.argsContains",
@@ -41085,9 +42207,9 @@
         "common.SuccessResp(c)"
       ],
       "source": {
-        "code": "func getClearTasksHandler[T task.TaskExtensionInfo](manager task.Manager[T], states ...tache.State) gin.HandlerFunc {\n\treturn func(c *gin.Context) {\n\t\tdeleteCloud, err := parseDeleteCloudRecord(c)\n\t\tif err != nil {\n\t\t\tcommon.ErrorResp(c, err, 400)\n\t\t\treturn\n\t\t}\n\t\tisAdmin, uid, ok := getUserInfo(c)\n\t\tif !ok {\n\t\t\tcommon.ErrorStrResp(c, \"user invalid\", 401)\n\t\t\treturn\n\t\t}\n\t\ttasks := manager.GetByCondition(func(t T) bool {\n\t\t\treturn canAccessTask(t, isAdmin, uid) && argsContains(t.GetState(), states...)\n\t\t})\n\t\tif deleteCloud {\n\t\t\tresults := make([]taskDeleteResult, 0, len(tasks))\n\t\t\tfor _, t := range tasks {\n\t\t\t\tresults = append(results, deleteManagedCloudTask(c, manager, t))\n\t\t\t}\n\t\t\tcommon.SuccessResp(c, gin.H{\"results\": results})\n\t\t\treturn\n\t\t}\n\t\tvar failures []error\n\t\tfor _, t := range tasks {\n\t\t\tif err := removeManagedTask(manager, t); err != nil {\n\t\t\t\tfailures = append(failures, err)\n\t\t\t}\n\t\t}\n\t\tif err := errors.Join(failures...); err != nil {\n\t\t\ttaskOperationError(c, err)\n\t\t\treturn\n\t\t}\n\t\tcommon.SuccessResp(c)\n\t}\n}",
+        "code": "func getClearTasksHandler[T task.TaskExtensionInfo](manager task.Manager[T], states ...tache.State) gin.HandlerFunc {\n\treturn func(c *gin.Context) {\n\t\toptions, err := parseTaskDeleteOptions(c)\n\t\tif err != nil {\n\t\t\tcommon.ErrorResp(c, err, 400)\n\t\t\treturn\n\t\t}\n\t\tisAdmin, uid, ok := getUserInfo(c)\n\t\tif !ok {\n\t\t\tcommon.ErrorStrResp(c, \"user invalid\", 401)\n\t\t\treturn\n\t\t}\n\t\ttasks := manager.GetByCondition(func(t T) bool {\n\t\t\treturn canAccessTask(t, isAdmin, uid) && argsContains(t.GetState(), states...)\n\t\t})\n\t\tif options.deleteCloudRecord {\n\t\t\tresults := make([]taskDeleteResult, 0, len(tasks))\n\t\t\tfor _, t := range tasks {\n\t\t\t\tresults = append(results, deleteManagedCloudTask(c, manager, t, options.deleteSourceFile))\n\t\t\t}\n\t\t\tcommon.SuccessResp(c, gin.H{\"results\": results})\n\t\t\treturn\n\t\t}\n\t\tvar failures []error\n\t\tfor _, t := range tasks {\n\t\t\tif err := removeManagedTask(manager, t); err != nil {\n\t\t\t\tfailures = append(failures, err)\n\t\t\t}\n\t\t}\n\t\tif err := errors.Join(failures...); err != nil {\n\t\t\ttaskOperationError(c, err)\n\t\t\treturn\n\t\t}\n\t\tcommon.SuccessResp(c)\n\t}\n}",
         "file": "server/handles/task_delete.go",
-        "line": 168
+        "line": 187
       },
       "types": [
         "github.com/gin-gonic/gin.H",
@@ -41104,7 +42226,7 @@
       "calls": [
         "server/handles.getBatchHandler",
         "server/handles.removeManagedTask",
-        "server/handles.parseDeleteCloudRecord",
+        "server/handles.parseTaskDeleteOptions",
         "server/handles.getUserInfo",
         "server/handles.missingTaskDeleteResult",
         "server/handles.canAccessTask",
@@ -41118,9 +42240,9 @@
         "common.SuccessResp(c, gin.H{\"results\": results})"
       ],
       "source": {
-        "code": "func getDeleteSomeTasksHandler[T task.TaskExtensionInfo](manager task.Manager[T]) gin.HandlerFunc {\n\tlocal := getBatchHandler(manager, func(t T) error { return removeManagedTask(manager, t) })\n\treturn func(c *gin.Context) {\n\t\tdeleteCloud, err := parseDeleteCloudRecord(c)\n\t\tif err != nil {\n\t\t\tcommon.ErrorResp(c, err, 400)\n\t\t\treturn\n\t\t}\n\t\tif !deleteCloud {\n\t\t\tlocal(c)\n\t\t\treturn\n\t\t}\n\t\tisAdmin, uid, ok := getUserInfo(c)\n\t\tif !ok {\n\t\t\tcommon.ErrorStrResp(c, \"user invalid\", 401)\n\t\t\treturn\n\t\t}\n\t\tvar ids []string\n\t\tif err := c.ShouldBind(&ids); err != nil {\n\t\t\tcommon.ErrorStrResp(c, \"invalid request format\", 400)\n\t\t\treturn\n\t\t}\n\t\tresults := make([]taskDeleteResult, 0, len(ids))\n\t\tseen := make(map[string]taskDeleteResult, len(ids))\n\t\tfor _, id := range ids {\n\t\t\tif result, exists := seen[id]; exists {\n\t\t\t\tresults = append(results, result)\n\t\t\t\tcontinue\n\t\t\t}\n\t\t\tresult := missingTaskDeleteResult(id)\n\t\t\tif t, ok := manager.GetByID(id); ok && canAccessTask(t, isAdmin, uid) {\n\t\t\t\tresult = deleteManagedCloudTask(c, manager, t)\n\t\t\t}\n\t\t\tseen[id] = result\n\t\t\tresults = append(results, result)\n\t\t}\n\t\tcommon.SuccessResp(c, gin.H{\"results\": results})\n\t}\n}",
+        "code": "func getDeleteSomeTasksHandler[T task.TaskExtensionInfo](manager task.Manager[T]) gin.HandlerFunc {\n\tlocal := getBatchHandler(manager, func(t T) error { return removeManagedTask(manager, t) })\n\treturn func(c *gin.Context) {\n\t\toptions, err := parseTaskDeleteOptions(c)\n\t\tif err != nil {\n\t\t\tcommon.ErrorResp(c, err, 400)\n\t\t\treturn\n\t\t}\n\t\tif !options.deleteCloudRecord {\n\t\t\tlocal(c)\n\t\t\treturn\n\t\t}\n\t\tisAdmin, uid, ok := getUserInfo(c)\n\t\tif !ok {\n\t\t\tcommon.ErrorStrResp(c, \"user invalid\", 401)\n\t\t\treturn\n\t\t}\n\t\tvar ids []string\n\t\tif err := c.ShouldBind(&ids); err != nil {\n\t\t\tcommon.ErrorStrResp(c, \"invalid request format\", 400)\n\t\t\treturn\n\t\t}\n\t\tresults := make([]taskDeleteResult, 0, len(ids))\n\t\tseen := make(map[string]taskDeleteResult, len(ids))\n\t\tfor _, id := range ids {\n\t\t\tif result, exists := seen[id]; exists {\n\t\t\t\tresults = append(results, result)\n\t\t\t\tcontinue\n\t\t\t}\n\t\t\tresult := missingTaskDeleteResult(id)\n\t\t\tif t, ok := manager.GetByID(id); ok && canAccessTask(t, isAdmin, uid) {\n\t\t\t\tresult = deleteManagedCloudTask(c, manager, t, options.deleteSourceFile)\n\t\t\t}\n\t\t\tseen[id] = result\n\t\t\tresults = append(results, result)\n\t\t}\n\t\tcommon.SuccessResp(c, gin.H{\"results\": results})\n\t}\n}",
         "file": "server/handles/task_delete.go",
-        "line": 128
+        "line": 147
       },
       "types": [
         "[]string",
@@ -41133,7 +42255,7 @@
         "server/handles.getTargetedHandler",
         "server/handles.removeManagedTask",
         "server/handles.taskOperationError",
-        "server/handles.parseDeleteCloudRecord",
+        "server/handles.parseTaskDeleteOptions",
         "server/handles.getUserInfo",
         "server/handles.canAccessTask",
         "server/handles.respondTaskDeletion",
@@ -41153,9 +42275,9 @@
         "common.ErrorStrResp(c, \"user invalid\", 401)"
       ],
       "source": {
-        "code": "func getDeleteTaskHandler[T task.TaskExtensionInfo](manager task.Manager[T]) gin.HandlerFunc {\n\tlocal := getTargetedHandler(manager, func(c *gin.Context, t T) {\n\t\tif err := removeManagedTask(manager, t); err != nil {\n\t\t\ttaskOperationError(c, err)\n\t\t\treturn\n\t\t}\n\t\tcommon.SuccessResp(c)\n\t})\n\treturn func(c *gin.Context) {\n\t\tdeleteCloud, err := parseDeleteCloudRecord(c)\n\t\tif err != nil {\n\t\t\tcommon.ErrorResp(c, err, 400)\n\t\t\treturn\n\t\t}\n\t\tif !deleteCloud {\n\t\t\tlocal(c)\n\t\t\treturn\n\t\t}\n\t\tisAdmin, uid, ok := getUserInfo(c)\n\t\tif !ok {\n\t\t\tcommon.ErrorStrResp(c, \"user invalid\", 401)\n\t\t\treturn\n\t\t}\n\t\tid := c.Query(\"tid\")\n\t\tt, ok := manager.GetByID(id)\n\t\tif !ok || !canAccessTask(t, isAdmin, uid) {\n\t\t\trespondTaskDeletion(c, missingTaskDeleteResult(id))\n\t\t\treturn\n\t\t}\n\t\trespondTaskDeletion(c, deleteManagedCloudTask(c, manager, t))\n\t}\n}",
+        "code": "func getDeleteTaskHandler[T task.TaskExtensionInfo](manager task.Manager[T]) gin.HandlerFunc {\n\tlocal := getTargetedHandler(manager, func(c *gin.Context, t T) {\n\t\tif err := removeManagedTask(manager, t); err != nil {\n\t\t\ttaskOperationError(c, err)\n\t\t\treturn\n\t\t}\n\t\tcommon.SuccessResp(c)\n\t})\n\treturn func(c *gin.Context) {\n\t\toptions, err := parseTaskDeleteOptions(c)\n\t\tif err != nil {\n\t\t\tcommon.ErrorResp(c, err, 400)\n\t\t\treturn\n\t\t}\n\t\tif !options.deleteCloudRecord {\n\t\t\tlocal(c)\n\t\t\treturn\n\t\t}\n\t\tisAdmin, uid, ok := getUserInfo(c)\n\t\tif !ok {\n\t\t\tcommon.ErrorStrResp(c, \"user invalid\", 401)\n\t\t\treturn\n\t\t}\n\t\tid := c.Query(\"tid\")\n\t\tt, ok := manager.GetByID(id)\n\t\tif !ok || !canAccessTask(t, isAdmin, uid) {\n\t\t\trespondTaskDeletion(c, missingTaskDeleteResult(id))\n\t\t\treturn\n\t\t}\n\t\trespondTaskDeletion(c, deleteManagedCloudTask(c, manager, t, options.deleteSourceFile))\n\t}\n}",
         "file": "server/handles/task_delete.go",
-        "line": 95
+        "line": 114
       },
       "types": []
     },
@@ -41542,9 +42664,9 @@
       "parameters": [],
       "responses": [],
       "source": {
-        "code": "func missingTaskDeleteResult(id string) taskDeleteResult {\n\treturn taskDeleteResult{\n\t\tTaskID:\tid, CloudState: \"none\", Code: 404, Reason: \"task_not_found\", Error: \"task not found\",\n\t}\n}",
+        "code": "func missingTaskDeleteResult(id string) taskDeleteResult {\n\treturn taskDeleteResult{\n\t\tTaskID:\tid, CloudState: \"none\", SourceFileDeleteState: \"none\",\n\t\tCode:\t404, Reason: \"task_not_found\", Error: \"task not found\",\n\t}\n}",
         "file": "server/handles/task_delete.go",
-        "line": 51
+        "line": 65
       },
       "types": [
         "server/handles.taskDeleteResult"
@@ -41611,18 +42733,6 @@
         "[]internal/model.Obj"
       ]
     },
-    "server/handles.parseDeleteCloudRecord": {
-      "bindings": [],
-      "calls": [],
-      "parameters": [],
-      "responses": [],
-      "source": {
-        "code": "// An invalid or ambiguous option must not silently fall back to local removal.\nfunc parseDeleteCloudRecord(c *gin.Context) (bool, error) {\n\tquery, err := url.ParseQuery(c.Request.URL.RawQuery)\n\tif err != nil {\n\t\treturn false, errors.New(\"invalid task deletion query\")\n\t}\n\tvalues, exists := query[\"delete_cloud_record\"]\n\tif !exists {\n\t\treturn false, nil\n\t}\n\tif len(values) == 1 {\n\t\tswitch values[0] {\n\t\tcase \"true\":\n\t\t\treturn true, nil\n\t\tcase \"false\":\n\t\t\treturn false, nil\n\t\t}\n\t}\n\treturn false, errors.New(\"delete_cloud_record must be a single true or false value\")\n}",
-        "file": "server/handles/task_delete.go",
-        "line": 24
-      },
-      "types": []
-    },
     "server/handles.parseJWT": {
       "bindings": [],
       "calls": [],
@@ -41649,6 +42759,23 @@
       },
       "types": [
         "server/handles.ssoBindingClaims"
+      ]
+    },
+    "server/handles.parseTaskDeleteOptions": {
+      "bindings": [],
+      "calls": [],
+      "parameters": [],
+      "responses": [],
+      "source": {
+        "code": "// An invalid or ambiguous option must not silently fall back to local removal.\nfunc parseTaskDeleteOptions(c *gin.Context) (taskDeleteOptions, error) {\n\tvar options taskDeleteOptions\n\tquery, err := url.ParseQuery(c.Request.URL.RawQuery)\n\tif err != nil {\n\t\treturn options, errors.New(\"invalid task deletion query\")\n\t}\n\tfor _, option := range []struct {\n\t\tname\tstring\n\t\tvalue\t*bool\n\t}{\n\t\t{\"delete_cloud_record\", &options.deleteCloudRecord},\n\t\t{\"delete_source_file\", &options.deleteSourceFile},\n\t} {\n\t\tvalues, exists := query[option.name]\n\t\tif !exists {\n\t\t\tcontinue\n\t\t}\n\t\tif len(values) != 1 || (values[0] != \"true\" && values[0] != \"false\") {\n\t\t\treturn options, errors.New(option.name + \" must be a single true or false value\")\n\t\t}\n\t\t*option.value = values[0] == \"true\"\n\t}\n\tif options.deleteSourceFile && !options.deleteCloudRecord {\n\t\treturn options, errors.New(\"delete_source_file=true requires delete_cloud_record=true\")\n\t}\n\treturn options, nil\n}",
+        "file": "server/handles/task_delete.go",
+        "line": 30
+      },
+      "types": [
+        "server/handles.taskDeleteOptions",
+        "[]struct {\n\tname\tstring\n\tvalue\t*bool\n}",
+        "",
+        ""
       ]
     },
     "server/handles.prepareMediaScrapeCandidate": {
@@ -41868,7 +42995,7 @@
       "source": {
         "code": "func respondTaskDeletion(c *gin.Context, result taskDeleteResult) {\n\tif result.Code != 200 {\n\t\tcommon.ErrorWithDataResp(c, errors.New(result.Error), result.Code, result)\n\t\treturn\n\t}\n\tcommon.SuccessResp(c, result)\n}",
         "file": "server/handles/task_delete.go",
-        "line": 87
+        "line": 106
       },
       "types": []
     },
@@ -42389,7 +43516,7 @@
       "source": {
         "code": "func taskOperationCode(err error) int {\n\tif errors.Is(err, tool.ErrTaskConflict) {\n\t\treturn 409\n\t}\n\treturn 500\n}",
         "file": "server/handles/task_delete.go",
-        "line": 44
+        "line": 58
       },
       "types": []
     },
@@ -42822,5 +43949,5 @@
       ]
     }
   },
-  "x-openlist-source-sha256": "411d7fc5306293318f3627cc9bed33e5af495090711fdbb3e89533268dbafbaa"
+  "x-openlist-source-sha256": "ed9f5aa1c2669087c9a6af220fffd04502a311ff4a8a8bc29dde8a2a0aab4295"
 }

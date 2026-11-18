@@ -51,7 +51,7 @@ func offlineLockOperations() []offlineLockOperation {
 			return err
 		}},
 		{"bound delete", true, false, func(ctx context.Context, d *Open115, _ *atomic.Int32) error {
-			return d.DeleteOfflineTaskForAccount(ctx, "12345", "original")
+			return d.DeleteOfflineTaskForAccount(ctx, "12345", "original", false)
 		}},
 		{"delete", false, false, func(ctx context.Context, d *Open115, _ *atomic.Int32) error {
 			return d.DeleteOfflineTask(ctx, "original", false)

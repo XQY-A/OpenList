@@ -178,6 +178,7 @@ func restore115Download(record model.OfflineDownload115Task) (*DownloadTask, err
 		Url: snapshot.URL, DstDirPath: snapshot.DstDirPath, TempDir: snapshot.TempDir,
 		DeletePolicy: snapshot.DeletePolicy, Toolname: Open115Name,
 		Status: snapshot.Status, GID: record.InfoHash, open115: &record, cloudName: snapshot.CloudName,
+		deleteSourceFile: snapshot.DeleteSourceFile, sourceFileDeleteState: snapshot.SourceFileDeleteState,
 	}
 	download.Base.SetID(record.TaskID)
 	download.Base.SetState(snapshot.State)
@@ -192,6 +193,12 @@ func restore115Download(record model.OfflineDownload115Task) (*DownloadTask, err
 		// persisting the deletion response. Only an explicit, fresh query can
 		// reconcile it; recovery must never send another cloud mutation.
 		record.CloudDeleteState = CloudDeleteUnknown
+	}
+	if download.deleteSourceFile {
+		switch download.sourceFileDeleteState {
+		case "", SourceFileDeleteNone, SourceFileDeleteDeleting:
+			download.sourceFileDeleteState = SourceFileDeleteUnknown
+		}
 	}
 	if record.InfoHash != "" {
 		if record.StorageID == 0 || record.AccountID == "" {

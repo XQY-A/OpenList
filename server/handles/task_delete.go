@@ -12,33 +12,47 @@ import (
 )
 
 type taskDeleteResult struct {
-	TaskID       string `json:"task_id"`
-	LocalDeleted bool   `json:"local_deleted"`
-	CloudState   string `json:"cloud_state"`
-	Code         int    `json:"code"`
-	Reason       string `json:"reason,omitempty"`
-	Error        string `json:"error,omitempty"`
+	TaskID                string `json:"task_id"`
+	LocalDeleted          bool   `json:"local_deleted"`
+	CloudState            string `json:"cloud_state"`
+	SourceFileDeleteState string `json:"source_file_delete_state"`
+	Code                  int    `json:"code"`
+	Reason                string `json:"reason,omitempty"`
+	Error                 string `json:"error,omitempty"`
+}
+
+type taskDeleteOptions struct {
+	deleteCloudRecord bool
+	deleteSourceFile  bool
 }
 
 // An invalid or ambiguous option must not silently fall back to local removal.
-func parseDeleteCloudRecord(c *gin.Context) (bool, error) {
+func parseTaskDeleteOptions(c *gin.Context) (taskDeleteOptions, error) {
+	var options taskDeleteOptions
 	query, err := url.ParseQuery(c.Request.URL.RawQuery)
 	if err != nil {
-		return false, errors.New("invalid task deletion query")
+		return options, errors.New("invalid task deletion query")
 	}
-	values, exists := query["delete_cloud_record"]
-	if !exists {
-		return false, nil
-	}
-	if len(values) == 1 {
-		switch values[0] {
-		case "true":
-			return true, nil
-		case "false":
-			return false, nil
+	for _, option := range []struct {
+		name  string
+		value *bool
+	}{
+		{"delete_cloud_record", &options.deleteCloudRecord},
+		{"delete_source_file", &options.deleteSourceFile},
+	} {
+		values, exists := query[option.name]
+		if !exists {
+			continue
 		}
+		if len(values) != 1 || (values[0] != "true" && values[0] != "false") {
+			return options, errors.New(option.name + " must be a single true or false value")
+		}
+		*option.value = values[0] == "true"
 	}
-	return false, errors.New("delete_cloud_record must be a single true or false value")
+	if options.deleteSourceFile && !options.deleteCloudRecord {
+		return options, errors.New("delete_source_file=true requires delete_cloud_record=true")
+	}
+	return options, nil
 }
 
 func taskOperationCode(err error) int {
@@ -50,24 +64,29 @@ func taskOperationCode(err error) int {
 
 func missingTaskDeleteResult(id string) taskDeleteResult {
 	return taskDeleteResult{
-		TaskID: id, CloudState: "none", Code: 404, Reason: "task_not_found", Error: "task not found",
+		TaskID: id, CloudState: "none", SourceFileDeleteState: "none",
+		Code: 404, Reason: "task_not_found", Error: "task not found",
 	}
 }
 
-func deleteManagedCloudTask[T task.TaskExtensionInfo](c *gin.Context, manager task.Manager[T], t T) taskDeleteResult {
-	result := taskDeleteResult{TaskID: t.GetID(), CloudState: "none", Code: 409}
+func deleteManagedCloudTask[T task.TaskExtensionInfo](c *gin.Context, manager task.Manager[T], t T, deleteSourceFile bool) taskDeleteResult {
+	result := taskDeleteResult{TaskID: t.GetID(), CloudState: "none", SourceFileDeleteState: "none", Code: 409}
 	download, ok := any(t).(*tool.DownloadTask)
 	if !ok || !download.Is115Open() {
 		result.Reason = "unsupported_tool"
 		result.Error = "cloud record deletion is only supported for 115 Open download tasks"
 		return result
 	}
-	cloud, err := download.DeleteCloudRecord(c.Request.Context())
+	cloud, err := download.DeleteCloudRecord(c.Request.Context(), deleteSourceFile)
 	if cloud.CloudState != "" {
 		result.CloudState = cloud.CloudState
 	}
+	result.SourceFileDeleteState = cloud.SourceFileDeleteState
 	if err == nil && !cloud.LocalDeleted {
 		err = errors.New("cloud cleanup did not complete local task deletion")
+	}
+	if err == nil && deleteSourceFile && cloud.SourceFileDeleteState != tool.SourceFileDeleteDeleted {
+		err = errors.New("source file deletion was not confirmed")
 	}
 	if err != nil {
 		result.Code = taskOperationCode(err)
@@ -101,12 +120,12 @@ func getDeleteTaskHandler[T task.TaskExtensionInfo](manager task.Manager[T]) gin
 		common.SuccessResp(c)
 	})
 	return func(c *gin.Context) {
-		deleteCloud, err := parseDeleteCloudRecord(c)
+		options, err := parseTaskDeleteOptions(c)
 		if err != nil {
 			common.ErrorResp(c, err, 400)
 			return
 		}
-		if !deleteCloud {
+		if !options.deleteCloudRecord {
 			local(c)
 			return
 		}
@@ -121,19 +140,19 @@ func getDeleteTaskHandler[T task.TaskExtensionInfo](manager task.Manager[T]) gin
 			respondTaskDeletion(c, missingTaskDeleteResult(id))
 			return
 		}
-		respondTaskDeletion(c, deleteManagedCloudTask(c, manager, t))
+		respondTaskDeletion(c, deleteManagedCloudTask(c, manager, t, options.deleteSourceFile))
 	}
 }
 
 func getDeleteSomeTasksHandler[T task.TaskExtensionInfo](manager task.Manager[T]) gin.HandlerFunc {
 	local := getBatchHandler(manager, func(t T) error { return removeManagedTask(manager, t) })
 	return func(c *gin.Context) {
-		deleteCloud, err := parseDeleteCloudRecord(c)
+		options, err := parseTaskDeleteOptions(c)
 		if err != nil {
 			common.ErrorResp(c, err, 400)
 			return
 		}
-		if !deleteCloud {
+		if !options.deleteCloudRecord {
 			local(c)
 			return
 		}
@@ -156,7 +175,7 @@ func getDeleteSomeTasksHandler[T task.TaskExtensionInfo](manager task.Manager[T]
 			}
 			result := missingTaskDeleteResult(id)
 			if t, ok := manager.GetByID(id); ok && canAccessTask(t, isAdmin, uid) {
-				result = deleteManagedCloudTask(c, manager, t)
+				result = deleteManagedCloudTask(c, manager, t, options.deleteSourceFile)
 			}
 			seen[id] = result
 			results = append(results, result)
@@ -167,7 +186,7 @@ func getDeleteSomeTasksHandler[T task.TaskExtensionInfo](manager task.Manager[T]
 
 func getClearTasksHandler[T task.TaskExtensionInfo](manager task.Manager[T], states ...tache.State) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		deleteCloud, err := parseDeleteCloudRecord(c)
+		options, err := parseTaskDeleteOptions(c)
 		if err != nil {
 			common.ErrorResp(c, err, 400)
 			return
@@ -180,10 +199,10 @@ func getClearTasksHandler[T task.TaskExtensionInfo](manager task.Manager[T], sta
 		tasks := manager.GetByCondition(func(t T) bool {
 			return canAccessTask(t, isAdmin, uid) && argsContains(t.GetState(), states...)
 		})
-		if deleteCloud {
+		if options.deleteCloudRecord {
 			results := make([]taskDeleteResult, 0, len(tasks))
 			for _, t := range tasks {
-				results = append(results, deleteManagedCloudTask(c, manager, t))
+				results = append(results, deleteManagedCloudTask(c, manager, t, options.deleteSourceFile))
 			}
 			common.SuccessResp(c, gin.H{"results": results})
 			return

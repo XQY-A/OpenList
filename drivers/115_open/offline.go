@@ -166,9 +166,9 @@ func (d *Open115) DeleteOfflineTask(ctx context.Context, infoHash string, delete
 	return d.deleteOfflineTask(ctx, infoHash, deleteFiles)
 }
 
-// DeleteOfflineTaskForAccount removes only the cloud download record. It never
-// asks 115 to remove downloaded files.
-func (d *Open115) DeleteOfflineTaskForAccount(ctx context.Context, accountID, infoHash string) error {
+// DeleteOfflineTaskForAccount validates the saved account before deleting the
+// cloud record and, when explicitly requested, its downloaded files.
+func (d *Open115) DeleteOfflineTaskForAccount(ctx context.Context, accountID, infoHash string, deleteFiles bool) error {
 	if err := d.offlineMu.RLock(ctx); err != nil {
 		return err
 	}
@@ -176,7 +176,7 @@ func (d *Open115) DeleteOfflineTaskForAccount(ctx context.Context, accountID, in
 	if err := d.checkOfflineAccount(accountID); err != nil {
 		return err
 	}
-	return d.deleteOfflineTask(ctx, infoHash, false)
+	return d.deleteOfflineTask(ctx, infoHash, deleteFiles)
 }
 
 func (d *Open115) deleteOfflineTask(ctx context.Context, infoHash string, deleteFiles bool) error {

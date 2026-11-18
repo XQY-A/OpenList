@@ -2,6 +2,7 @@ package tool
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"sync/atomic"
 	"testing"
@@ -12,6 +13,79 @@ import (
 	"github.com/OpenListTeam/tache"
 	"gorm.io/gorm"
 )
+
+func TestDownloadTaskManagerRestoresSourceDeletionWithoutExecution(t *testing.T) {
+	_, creator := setupDownloadManagerDB(t)
+	client := &cloudDelete115TestTool{download115TestTool: &download115TestTool{}}
+	previous, existed := Tools[Open115Name]
+	Tools[Open115Name] = client
+	t.Cleanup(func() {
+		if existed {
+			Tools[Open115Name] = previous
+		} else {
+			delete(Tools, Open115Name)
+		}
+	})
+	cases := []struct {
+		name       string
+		cloud      string
+		files      string
+		deleteFile bool
+		wantCloud  string
+		wantFiles  string
+		canFiles   bool
+	}{
+		{name: "old_snapshot", cloud: CloudDeleteNone, wantCloud: CloudDeleteNone, wantFiles: SourceFileDeleteNone, canFiles: true},
+		{name: "keep_files_confirmed", cloud: CloudDeleteDeleted, wantCloud: CloudDeleteDeleted, wantFiles: SourceFileDeleteNone},
+		{name: "delete_files_interrupted", cloud: CloudDeleteDeleting, files: SourceFileDeleteDeleting, deleteFile: true, wantCloud: CloudDeleteUnknown, wantFiles: SourceFileDeleteUnknown, canFiles: true},
+		{name: "delete_files_missing_state", cloud: CloudDeleteUnknown, deleteFile: true, wantCloud: CloudDeleteUnknown, wantFiles: SourceFileDeleteUnknown, canFiles: true},
+		{name: "delete_files_unknown", cloud: CloudDeleteDeleted, files: SourceFileDeleteUnknown, deleteFile: true, wantCloud: CloudDeleteDeleted, wantFiles: SourceFileDeleteUnknown, canFiles: true},
+		{name: "delete_files_confirmed", cloud: CloudDeleteDeleted, files: SourceFileDeleteDeleted, deleteFile: true, wantCloud: CloudDeleteDeleted, wantFiles: SourceFileDeleteDeleted, canFiles: true},
+	}
+	for _, tc := range cases {
+		record := manager115Record(t, tc.name, creator.ID, tache.StateSucceeded, SubmissionAccepted)
+		record.CloudDeleteState = tc.cloud
+		var snapshot download115Snapshot
+		if err := json.Unmarshal([]byte(record.Snapshot), &snapshot); err != nil {
+			t.Fatal(err)
+		}
+		snapshot.DeleteSourceFile, snapshot.SourceFileDeleteState = tc.deleteFile, tc.files
+		encoded, err := json.Marshal(snapshot)
+		if err != nil {
+			t.Fatal(err)
+		}
+		record.Snapshot = string(encoded)
+		createManager115Record(t, record)
+	}
+	manager, err := NewDownloadTaskManager(0, 0, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range cases {
+		download, ok := manager.GetByID(tc.name)
+		if !ok || download.GetState() != tache.StateSucceeded {
+			t.Fatalf("recovery lost %s or changed its terminal state", tc.name)
+		}
+		record, snapshot := manager115Snapshot(t, tc.name)
+		info := download.Get115TaskInfo()
+		if record.CloudDeleteState != tc.wantCloud || snapshot.DeleteSourceFile != tc.deleteFile ||
+			info.SourceFileDeleteState != tc.wantFiles || info.CanDeleteSourceFile != tc.canFiles {
+			t.Fatalf("%s recovery = %+v, %+v", tc.name, info, snapshot)
+		}
+		if tc.deleteFile && snapshot.SourceFileDeleteState != tc.wantFiles {
+			t.Fatalf("%s did not persist the normalized file outcome: %+v", tc.name, snapshot)
+		}
+		if tc.cloud != CloudDeleteNone && download.Retryable() {
+			t.Fatalf("%s cleanup could return to download execution", tc.name)
+		}
+	}
+	if len(manager.GetByState(tache.StatePending, tache.StateRunning, tache.StateWaitingRetry)) != 0 {
+		t.Fatal("recovery queued a source file deletion")
+	}
+	if lookups, deletions := client.calls(); lookups != 0 || deletions != 0 {
+		t.Fatalf("recovery contacted the cloud: %d/%d", lookups, deletions)
+	}
+}
 
 func TestDownloadTaskManagerRestoresCloudCleanupWithoutExecution(t *testing.T) {
 	_, creator := setupDownloadManagerDB(t)
@@ -135,7 +209,7 @@ func TestDownloadTaskManagerCloudCleanupWriteFailureCannotDeleteReappearedHash(t
 			if !ok {
 				t.Fatal("initial task was not restored")
 			}
-			result, err := download.DeleteCloudRecord(context.Background())
+			result, err := download.DeleteCloudRecord(context.Background(), false)
 			var persistenceErr *CloudDeleteError
 			if !errors.As(err, &persistenceErr) || persistenceErr.Reason != "persistence_failed" || result.LocalDeleted || result.CloudState != CloudDeleteDeleted {
 				t.Fatalf("confirmation write failure = %+v, %v", result, err)
@@ -177,7 +251,7 @@ func TestDownloadTaskManagerCloudCleanupWriteFailureCannotDeleteReappearedHash(t
 				if stored.CloudDeleteState != CloudDeleteUnknown || stored.InfoHash != record.InfoHash || stored.DeletedAt != nil {
 					t.Fatalf("restart lost its conservative cleanup state: %+v", stored)
 				}
-				result, err = restored.DeleteCloudRecord(context.Background())
+				result, err = restored.DeleteCloudRecord(context.Background(), false)
 				var conflict *CloudDeleteError
 				if !errors.Is(err, ErrTaskConflict) || !errors.As(err, &conflict) || conflict.Reason != "cloud_delete_unknown" || result.LocalDeleted || result.CloudState != CloudDeleteUnknown {
 					t.Fatalf("restarted cleanup accepted a same-hash record in state %d: %+v, %v", cloudState, result, err)
@@ -199,7 +273,7 @@ func TestDownloadTaskManagerCloudCleanupWriteFailureCannotDeleteReappearedHash(t
 			if !ok {
 				t.Fatal("task disappeared before reliable absence was confirmed")
 			}
-			result, err = restored.DeleteCloudRecord(context.Background())
+			result, err = restored.DeleteCloudRecord(context.Background(), false)
 			if err != nil || !result.LocalDeleted || result.CloudState != CloudDeleteDeleted {
 				t.Fatalf("reliable absence did not finish local cleanup: %+v, %v", result, err)
 			}

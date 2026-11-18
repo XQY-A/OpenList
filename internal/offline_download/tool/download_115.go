@@ -30,19 +30,21 @@ const (
 // Only the fields needed to display and resume this task are stored. In
 // particular, neither driver credentials nor a serialized user belong here.
 type download115Snapshot struct {
-	URL          string       `json:"url"`
-	CloudName    string       `json:"cloud_name,omitempty"`
-	DstDirPath   string       `json:"dst_dir_path"`
-	TempDir      string       `json:"temp_dir"`
-	DeletePolicy DeletePolicy `json:"delete_policy"`
-	APIURL       string       `json:"api_url,omitempty"`
-	State        tache.State  `json:"state"`
-	Status       string       `json:"status"`
-	Progress     float64      `json:"progress"`
-	TotalBytes   int64        `json:"total_bytes"`
-	Error        string       `json:"error,omitempty"`
-	StartTime    *time.Time   `json:"start_time,omitempty"`
-	EndTime      *time.Time   `json:"end_time,omitempty"`
+	URL                   string       `json:"url"`
+	CloudName             string       `json:"cloud_name,omitempty"`
+	DeleteSourceFile      bool         `json:"delete_source_file,omitempty"`
+	SourceFileDeleteState string       `json:"source_file_delete_state,omitempty"`
+	DstDirPath            string       `json:"dst_dir_path"`
+	TempDir               string       `json:"temp_dir"`
+	DeletePolicy          DeletePolicy `json:"delete_policy"`
+	APIURL                string       `json:"api_url,omitempty"`
+	State                 tache.State  `json:"state"`
+	Status                string       `json:"status"`
+	Progress              float64      `json:"progress"`
+	TotalBytes            int64        `json:"total_bytes"`
+	Error                 string       `json:"error,omitempty"`
+	StartTime             *time.Time   `json:"start_time,omitempty"`
+	EndTime               *time.Time   `json:"end_time,omitempty"`
 }
 
 type offline115Store interface {
@@ -75,6 +77,7 @@ func (t *DownloadTask) store115() offline115Store {
 func (t *DownloadTask) snapshot115Locked() download115Snapshot {
 	snapshot := download115Snapshot{
 		URL: t.Url, CloudName: t.cloudName, DstDirPath: t.DstDirPath, TempDir: t.TempDir,
+		DeleteSourceFile: t.deleteSourceFile, SourceFileDeleteState: t.sourceFileDeleteState,
 		DeletePolicy: t.DeletePolicy, APIURL: t.ApiUrl,
 		State: t.Base.GetState(), Status: t.Status,
 		Progress: t.Base.GetProgress(), TotalBytes: t.TotalBytes,
@@ -446,7 +449,7 @@ func (t *DownloadTask) run115() error {
 			// independent context is bounded because the task's is canceled.
 			ctx, cancel := context.WithTimeout(context.Background(), open115Timeout)
 			unlock := lock115Account(reference.AccountID)
-			err := client.Delete(ctx, reference)
+			err := client.Delete(ctx, reference, false)
 			unlock()
 			cancel()
 			return errors.Join(t.Ctx().Err(), err)

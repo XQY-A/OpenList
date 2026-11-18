@@ -25,12 +25,13 @@ import (
 
 type cloudDeleteTestTool struct {
 	settingsTool
-	mu          sync.Mutex
-	lookups     []tool.Open115Reference
-	deletions   []tool.Open115Reference
-	lookup      func(tool.Open115Reference) (*tool.Open115TaskStatus, error)
-	delete      func(tool.Open115Reference) error
-	validateErr error
+	mu                sync.Mutex
+	lookups           []tool.Open115Reference
+	deletions         []tool.Open115Reference
+	deleteSourceFiles []bool
+	lookup            func(tool.Open115Reference) (*tool.Open115TaskStatus, error)
+	delete            func(tool.Open115Reference) error
+	validateErr       error
 }
 
 func (*cloudDeleteTestTool) Prepare(context.Context, string) (*tool.Open115Submission, error) {
@@ -51,9 +52,10 @@ func (f *cloudDeleteTestTool) Lookup(_ context.Context, reference tool.Open115Re
 	return &tool.Open115TaskStatus{State: 2}, nil
 }
 
-func (f *cloudDeleteTestTool) Delete(_ context.Context, reference tool.Open115Reference) error {
+func (f *cloudDeleteTestTool) Delete(_ context.Context, reference tool.Open115Reference, deleteSourceFile bool) error {
 	f.mu.Lock()
 	f.deletions = append(f.deletions, reference)
+	f.deleteSourceFiles = append(f.deleteSourceFiles, deleteSourceFile)
 	f.mu.Unlock()
 	if f.delete != nil {
 		return f.delete(reference)
@@ -169,6 +171,16 @@ func Test115CloudDeleteOptionRejectsInvalidValues(t *testing.T) {
 				"delete_cloud_record=true&delete_cloud_record=true",
 				"delete_cloud_record=false&delete_cloud_record=true",
 				"delete_cloud_record=%zz", "delete_cloud_record=true&bad=%zz",
+				"delete_source_file=true",
+				"delete_cloud_record=false&delete_source_file=true",
+				"delete_cloud_record=true&delete_source_file",
+				"delete_cloud_record=true&delete_source_file=",
+				"delete_cloud_record=true&delete_source_file=TRUE",
+				"delete_cloud_record=true&delete_source_file=1",
+				"delete_cloud_record=true&delete_source_file=%20true",
+				"delete_cloud_record=true&delete_source_file=%zz",
+				"delete_cloud_record=true&delete_source_file=true&delete_source_file=true",
+				"delete_cloud_record=true&delete_source_file=false&delete_source_file=true",
 			} {
 				response := request115Task(t, router, owner, http.MethodPost,
 					cloudDeleteRequestPath(route, ids[0], query), cloudDeleteIDsBody(t, ids[0]))
@@ -192,6 +204,81 @@ func Test115CloudDeleteOptionRejectsInvalidValues(t *testing.T) {
 			}
 			assertCloudDeletePersistence(t, manager, ids[0], true, "none")
 		})
+	}
+}
+
+func Test115SourceFileDeleteOptionsAcrossAllRoutes(t *testing.T) {
+	for _, route := range []string{"delete", "delete_some", "clear_done", "clear_succeeded"} {
+		for _, option := range []struct {
+			name       string
+			query      string
+			cloud      bool
+			deleteFile bool
+		}{
+			{name: "local_default"},
+			{name: "local_explicit_false", query: "delete_cloud_record=false&delete_source_file=false"},
+			{name: "cloud_default", query: "delete_cloud_record=true", cloud: true},
+			{name: "cloud_explicit_false", query: "delete_cloud_record=true&delete_source_file=false", cloud: true},
+			{name: "cloud_and_files", query: "delete_cloud_record=true&delete_source_file=true", cloud: true, deleteFile: true},
+		} {
+			t.Run(route+"/"+option.name, func(t *testing.T) {
+				owner := new115TaskUser(t)
+				manager, ids := restoreCloudDeleteFixtures(t, task115Fixture{owner, tache.StateSucceeded, tool.SubmissionAccepted})
+				fake := installCloudDeleteTestTool(t)
+				router := task115Router(manager)
+				infoResponse := request115Task(t, router, owner, http.MethodPost, "/info?tid="+ids[0], "")
+				var info TaskInfo
+				if err := json.Unmarshal(infoResponse.Data, &info); err != nil || !info.CanDeleteSourceFile {
+					t.Fatalf("source file capability was not advertised: %s, %v", infoResponse.Data, err)
+				}
+				response := request115Task(t, router, owner, http.MethodPost,
+					cloudDeleteRequestPath(route, ids[0], option.query), cloudDeleteIDsBody(t, ids[0]))
+				if response.Code != 200 {
+					t.Fatalf("deletion response = %#v", response)
+				}
+				wantCloud, wantFiles := tool.CloudDeleteNone, tool.SourceFileDeleteNone
+				if option.cloud {
+					wantCloud = tool.CloudDeleteDeleted
+					if option.deleteFile {
+						wantFiles = tool.SourceFileDeleteDeleted
+					}
+					var result taskDeleteResult
+					if route == "delete" {
+						result = decodeCloudDeleteResult(t, response)
+					} else {
+						results := decodeCloudDeleteBatch(t, response)
+						if len(results) != 1 {
+							t.Fatalf("expected one result, got %+v", results)
+						}
+						result = results[0]
+					}
+					if !result.LocalDeleted || result.CloudState != wantCloud || result.SourceFileDeleteState != wantFiles {
+						t.Fatalf("deletion result = %+v", result)
+					}
+					if len(fake.deleteSourceFiles) != 1 || fake.deleteSourceFiles[0] != option.deleteFile {
+						t.Fatalf("cloud option = %v, want %v", fake.deleteSourceFiles, option.deleteFile)
+					}
+				} else if len(fake.lookups) != 0 || len(fake.deletions) != 0 {
+					t.Fatal("local deletion contacted the cloud")
+				}
+				assertCloudDeletePersistence(t, manager, ids[0], true, wantCloud)
+				record, err := db.GetOfflineDownload115Task(ids[0])
+				if err != nil {
+					t.Fatal(err)
+				}
+				var snapshot struct {
+					DeleteSourceFile      bool   `json:"delete_source_file"`
+					SourceFileDeleteState string `json:"source_file_delete_state"`
+				}
+				if err := json.Unmarshal([]byte(record.Snapshot), &snapshot); err != nil {
+					t.Fatal(err)
+				}
+				if snapshot.DeleteSourceFile != option.deleteFile ||
+					(option.cloud && snapshot.SourceFileDeleteState != wantFiles) {
+					t.Fatalf("saved file deletion option = %+v", snapshot)
+				}
+			})
+		}
 	}
 }
 
@@ -309,19 +396,24 @@ func Test115CloudDeleteBatchPartialSuccessAndDuplicates(t *testing.T) {
 	manager.Add(ordinary)
 	requested := []string{ids[0], ids[1], ids[2], ids[3], "missing-task", ordinary.GetID(), ids[0], ids[1]}
 	response := request115Task(t, task115Router(manager), owner, http.MethodPost,
-		"/delete_some?delete_cloud_record=true", cloudDeleteIDsBody(t, requested...))
+		"/delete_some?delete_cloud_record=true&delete_source_file=true", cloudDeleteIDsBody(t, requested...))
 	results := decodeCloudDeleteBatch(t, response)
 	if len(results) != len(requested) || strings.Contains(string(response.Data), "private-value") || strings.Contains(string(response.Data), "Cloud-ReCeIpT") {
 		t.Fatalf("unexpected batch results: %s", response.Data)
 	}
 	wantCodes := []int{200, 500, 409, 404, 404, 409, 200, 500}
+	wantFiles := []string{"deleted", "unknown", "none", "none", "none", "none", "deleted", "unknown"}
 	for index, result := range results {
-		if result.TaskID != requested[index] || result.Code != wantCodes[index] || result.LocalDeleted != (wantCodes[index] == 200) {
+		if result.TaskID != requested[index] || result.Code != wantCodes[index] ||
+			result.LocalDeleted != (wantCodes[index] == 200) || result.SourceFileDeleteState != wantFiles[index] {
 			t.Errorf("result %d = %#v, want code %d", index, result, wantCodes[index])
 		}
 	}
 	if !reflect.DeepEqual(results[0], results[6]) || !reflect.DeepEqual(results[1], results[7]) || len(fake.lookups) != 2 || len(fake.deletions) != 2 {
 		t.Errorf("duplicate IDs repeated an operation: results=%#v, lookups=%d, deletions=%d", results, len(fake.lookups), len(fake.deletions))
+	}
+	if !reflect.DeepEqual(fake.deleteSourceFiles, []bool{true, true}) {
+		t.Fatalf("mixed batch lost file deletion options: %v", fake.deleteSourceFiles)
 	}
 	if results[3].Reason != "task_not_found" || results[4].Reason != "task_not_found" || results[5].Reason != "unsupported_tool" {
 		t.Errorf("unexpected failure categories: %#v", results)
@@ -356,7 +448,7 @@ func Test115CloudDeleteClearFiltersAndRetainsFailures(t *testing.T) {
 				return &tool.Open115TaskStatus{State: 2}, nil
 			}
 			response := request115Task(t, task115Router(manager), owner, http.MethodPost,
-				"/"+route+"?delete_cloud_record=true", "")
+				"/"+route+"?delete_cloud_record=true&delete_source_file=true", "")
 			results := decodeCloudDeleteBatch(t, response)
 			wantCount := 2
 			if route == "clear_done" {
@@ -382,6 +474,20 @@ func Test115CloudDeleteClearFiltersAndRetainsFailures(t *testing.T) {
 				}
 				if exists && (result.LocalDeleted != wantDeleted || (result.Code == 200) != wantDeleted) {
 					t.Errorf("clear result does not describe the retained task: %#v", result)
+				}
+				if exists {
+					wantFiles := tool.SourceFileDeleteNone
+					if wantDeleted {
+						wantFiles = tool.SourceFileDeleteDeleted
+					}
+					if result.SourceFileDeleteState != wantFiles {
+						t.Errorf("clear result lost the file deletion outcome: %+v", result)
+					}
+				}
+			}
+			for _, deleteFiles := range fake.deleteSourceFiles {
+				if !deleteFiles {
+					t.Fatal("clear dropped the explicit file deletion option")
 				}
 			}
 		})

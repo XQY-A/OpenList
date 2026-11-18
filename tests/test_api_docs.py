@@ -69,11 +69,18 @@ class ApiDocumentationTest(unittest.TestCase):
         fields = self.spec["components"]["schemas"]["server_handles.TaskInfo"]["properties"]
         self.assertIn("unknown", fields["submission_state"]["enum"])
         self.assertIn("deleted", fields["cloud_delete_state"]["enum"])
+        self.assertEqual(fields["source_file_delete_state"]["enum"], ["none", "deleting", "unknown", "deleted"])
+        self.assertEqual(fields["can_delete_source_file"]["type"], "boolean")
+        result_fields = self.spec["components"]["schemas"]["server_handles.taskDeleteResult"]["properties"]
+        self.assertEqual(result_fields["source_file_delete_state"]["enum"], ["none", "deleting", "unknown", "deleted"])
         self.assertEqual(fields["state"]["enum"], list(range(10)))
         for action in ("delete", "delete_some", "clear_done", "clear_succeeded"):
             op = self.operation("/api/task/offline_download/" + action)
-            option = next(p for p in op["parameters"] if p["name"] == "delete_cloud_record")
-            self.assertEqual(option["schema"]["enum"], ["true", "false"])
+            for name in ("delete_cloud_record", "delete_source_file"):
+                option = next(p for p in op["parameters"] if p["name"] == name)
+                self.assertEqual(option["schema"]["enum"], ["true", "false"])
+                self.assertEqual(option["schema"]["default"], "false")
+            self.assertIn("delete_source_file=true", op["description"])
             data = op["responses"]["200"]["content"]["application/json"]["schema"]["properties"]["data"]["anyOf"][0]["anyOf"][0]
             self.assertIn("$ref" if action == "delete" else "properties", data)
 

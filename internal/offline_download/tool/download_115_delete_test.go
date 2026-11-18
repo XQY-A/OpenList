@@ -15,17 +15,19 @@ import (
 
 type cloudDelete115TestTool struct {
 	*download115TestTool
-	delete      func(context.Context, Open115Reference) error
-	validateErr error
+	delete            func(context.Context, Open115Reference) error
+	validateErr       error
+	deleteSourceFiles []bool
 }
 
 func (f *cloudDelete115TestTool) ValidateReference(Open115Reference) error {
 	return f.validateErr
 }
 
-func (f *cloudDelete115TestTool) Delete(ctx context.Context, reference Open115Reference) error {
+func (f *cloudDelete115TestTool) Delete(ctx context.Context, reference Open115Reference, deleteSourceFile bool) error {
 	f.mu.Lock()
 	f.cloudDeletions++
+	f.deleteSourceFiles = append(f.deleteSourceFiles, deleteSourceFile)
 	f.mu.Unlock()
 	if f.delete != nil {
 		return f.delete(ctx, reference)
@@ -96,7 +98,7 @@ func TestDownload115CloudDeletionRequiresTerminalCloudState(t *testing.T) {
 				}
 				return &Open115TaskStatus{State: tc.state}, nil
 			}
-			result, err := download.DeleteCloudRecord(context.Background())
+			result, err := download.DeleteCloudRecord(context.Background(), false)
 			if (err == nil) != tc.wantOK || result.LocalDeleted != tc.wantOK {
 				t.Fatalf("result = %+v, error = %v, want success %v", result, err, tc.wantOK)
 			}
@@ -139,7 +141,7 @@ func TestDownload115CloudDeletionRejectsUnsafeLocalMetadata(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			download, store, client := newCloudDelete115TestTask(t, "task")
 			tc.change(download, client)
-			result, err := download.DeleteCloudRecord(context.Background())
+			result, err := download.DeleteCloudRecord(context.Background(), false)
 			if err == nil || result.LocalDeleted {
 				t.Fatalf("unsafe cleanup was accepted: %+v, %v", result, err)
 			}
@@ -154,7 +156,7 @@ func TestDownload115CloudDeletionRejectsUnsafeLocalMetadata(t *testing.T) {
 func TestDownload115CloudDeletionAllowsMissingCreator(t *testing.T) {
 	download, store, _ := newCloudDelete115TestTask(t, "task")
 	download.Creator = nil
-	result, err := download.DeleteCloudRecord(context.Background())
+	result, err := download.DeleteCloudRecord(context.Background(), false)
 	if err != nil || !result.LocalDeleted || store.snapshot().DeletedAt == nil {
 		t.Fatalf("administrator cleanup lost access to a deleted creator's task: %+v, %v", result, err)
 	}
@@ -168,7 +170,7 @@ func TestDownload115CloudDeletionIntentFailurePreventsDispatch(t *testing.T) {
 		}
 		return nil
 	}
-	result, err := download.DeleteCloudRecord(context.Background())
+	result, err := download.DeleteCloudRecord(context.Background(), false)
 	if err == nil || result.LocalDeleted {
 		t.Fatalf("intent persistence failure reported success: %+v, %v", result, err)
 	}
@@ -180,7 +182,7 @@ func TestDownload115CloudDeletionIntentFailurePreventsDispatch(t *testing.T) {
 		t.Fatal("failed intent changed the durable cloud state")
 	}
 	store.saveError = nil
-	result, err = download.DeleteCloudRecord(context.Background())
+	result, err = download.DeleteCloudRecord(context.Background(), false)
 	if err != nil || !result.LocalDeleted {
 		t.Fatalf("retry after a pre-dispatch failure could not finish: %+v, %v", result, err)
 	}
@@ -192,7 +194,7 @@ func TestDownload115CloudDeletionIntentFailurePreventsDispatch(t *testing.T) {
 func TestDownload115CloudDeletionUnknownResponseRechecksBeforeRecovery(t *testing.T) {
 	download, store, client := newCloudDelete115TestTask(t, "task")
 	client.delete = func(context.Context, Open115Reference) error { return context.DeadlineExceeded }
-	result, err := download.DeleteCloudRecord(context.Background())
+	result, err := download.DeleteCloudRecord(context.Background(), false)
 	if err == nil || !errors.Is(err, context.DeadlineExceeded) || result.LocalDeleted || result.CloudState != "unknown" {
 		t.Fatalf("unknown response = %+v, %v", result, err)
 	}
@@ -204,7 +206,7 @@ func TestDownload115CloudDeletionUnknownResponseRechecksBeforeRecovery(t *testin
 		client.lookup = func(context.Context, Open115Reference) (*Open115TaskStatus, error) {
 			return &Open115TaskStatus{State: state}, nil
 		}
-		result, err = download.DeleteCloudRecord(context.Background())
+		result, err = download.DeleteCloudRecord(context.Background(), false)
 		var conflict *CloudDeleteError
 		if !errors.Is(err, ErrTaskConflict) || !errors.As(err, &conflict) || conflict.Reason != "cloud_delete_unknown" || result.LocalDeleted {
 			t.Fatalf("unknown outcome with cloud state %d was not refused: %+v, %v", state, result, err)
@@ -217,7 +219,7 @@ func TestDownload115CloudDeletionUnknownResponseRechecksBeforeRecovery(t *testin
 		}
 	}
 	client.lookup = func(context.Context, Open115Reference) (*Open115TaskStatus, error) { return nil, nil }
-	result, err = download.DeleteCloudRecord(context.Background())
+	result, err = download.DeleteCloudRecord(context.Background(), false)
 	if err != nil || !result.LocalDeleted || result.CloudState != "deleted" {
 		t.Fatalf("reliable absence did not complete recovery: %+v, %v", result, err)
 	}
@@ -256,7 +258,7 @@ func TestDownload115CloudDeletionUnusedIntentRollback(t *testing.T) {
 						return nil
 					}
 				}
-				result, err := download.DeleteCloudRecord(context.Background())
+				result, err := download.DeleteCloudRecord(context.Background(), false)
 				if err == nil || result.LocalDeleted {
 					t.Fatalf("rejected cloud query removed the task: %+v, %v", result, err)
 				}
@@ -278,14 +280,14 @@ func TestDownload115CloudDeletionUnusedIntentRollback(t *testing.T) {
 				client.lookup = func(context.Context, Open115Reference) (*Open115TaskStatus, error) {
 					return &Open115TaskStatus{State: 2}, nil
 				}
-				result, err = download.DeleteCloudRecord(context.Background())
+				result, err = download.DeleteCloudRecord(context.Background(), false)
 				if failRollback {
 					var conflict *CloudDeleteError
 					if !errors.Is(err, ErrTaskConflict) || !errors.As(err, &conflict) || conflict.Reason != "cloud_delete_unknown" || result.LocalDeleted {
 						t.Fatalf("failed rollback authorized another deletion attempt: %+v, %v", result, err)
 					}
 					client.lookup = func(context.Context, Open115Reference) (*Open115TaskStatus, error) { return nil, nil }
-					result, err = download.DeleteCloudRecord(context.Background())
+					result, err = download.DeleteCloudRecord(context.Background(), false)
 				}
 				if err != nil || !result.LocalDeleted || store.snapshot().DeletedAt == nil {
 					t.Fatalf("reconciliation did not finish: %+v, %v", result, err)
@@ -313,13 +315,13 @@ func TestDownload115CloudDeletionPreservesConfirmedDeletionAfterStoreFailure(t *
 			} else {
 				store.deleteErr = errors.New("tombstone write failed")
 			}
-			result, err := download.DeleteCloudRecord(context.Background())
+			result, err := download.DeleteCloudRecord(context.Background(), false)
 			if err == nil || result.LocalDeleted || result.CloudState != "deleted" {
 				t.Fatalf("post-cloud persistence failure = %+v, %v", result, err)
 			}
 			assertCloudDelete115Preserved(t, store)
 			store.saveError, store.deleteErr = nil, nil
-			result, err = download.DeleteCloudRecord(context.Background())
+			result, err = download.DeleteCloudRecord(context.Background(), false)
 			if err == nil || result.LocalDeleted {
 				t.Fatalf("a reappeared hash was treated as the deleted task: %+v, %v", result, err)
 			}
@@ -332,7 +334,7 @@ func TestDownload115CloudDeletionPreservesConfirmedDeletionAfterStoreFailure(t *
 			}
 			assertCloudDelete115Preserved(t, store)
 			client.lookup = func(context.Context, Open115Reference) (*Open115TaskStatus, error) { return nil, nil }
-			result, err = download.DeleteCloudRecord(context.Background())
+			result, err = download.DeleteCloudRecord(context.Background(), false)
 			if err != nil || !result.LocalDeleted || store.snapshot().DeletedAt == nil {
 				t.Fatalf("recovery did not persist the final tombstone: %+v, %v", result, err)
 			}
@@ -391,7 +393,7 @@ func TestDownload115CloudDeletionSerializesTaskRetryAndMetadataReads(t *testing.
 	cleanupCloudDelete115Worker(t, exited, unblock)
 	go func() {
 		defer close(exited)
-		result, err := download.DeleteCloudRecord(context.Background())
+		result, err := download.DeleteCloudRecord(context.Background(), false)
 		done <- cloudDelete115Outcome{result, err}
 	}()
 	select {
@@ -401,7 +403,7 @@ func TestDownload115CloudDeletionSerializesTaskRetryAndMetadataReads(t *testing.
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
 	defer cancel()
-	result, err := download.DeleteCloudRecord(ctx)
+	result, err := download.DeleteCloudRecord(ctx, false)
 	if !errors.Is(err, context.DeadlineExceeded) || result.LocalDeleted {
 		t.Fatalf("same-task lock ignored request cancellation: %+v, %v", result, err)
 	}
@@ -477,7 +479,7 @@ func TestDownload115CloudDeletionWaitsForSameAccountSubmission(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
 	defer cancel()
-	result, err := download.DeleteCloudRecord(ctx)
+	result, err := download.DeleteCloudRecord(ctx, false)
 	if !errors.Is(err, context.DeadlineExceeded) || result.LocalDeleted {
 		t.Fatalf("account-lock wait ignored cancellation: %+v, %v", result, err)
 	}
@@ -494,7 +496,7 @@ func TestDownload115CloudDeletionWaitsForSameAccountSubmission(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("submission did not release its account lock")
 	}
-	result, err = download.DeleteCloudRecord(context.Background())
+	result, err = download.DeleteCloudRecord(context.Background(), false)
 	if err != nil || !result.LocalDeleted {
 		t.Fatalf("canceled waiter leaked the account lock: %+v, %v", result, err)
 	}
@@ -520,7 +522,7 @@ func TestDownload115CloudDeletionHonorsTombstoneWrittenDuringLookup(t *testing.T
 	cleanupCloudDelete115Worker(t, exited, unblock)
 	go func() {
 		defer close(exited)
-		result, err := download.DeleteCloudRecord(context.Background())
+		result, err := download.DeleteCloudRecord(context.Background(), false)
 		done <- cloudDelete115Outcome{result, err}
 	}()
 	select {

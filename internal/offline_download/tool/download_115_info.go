@@ -10,6 +10,8 @@ type Open115TaskInfo struct {
 	CloudDeleteState             string `json:"cloud_delete_state"`
 	CanDeleteCloudRecord         bool   `json:"can_delete_cloud_record"`
 	CloudDeleteUnavailableReason string `json:"cloud_delete_unavailable_reason"`
+	CanDeleteSourceFile          bool   `json:"can_delete_source_file"`
+	SourceFileDeleteState        string `json:"source_file_delete_state"`
 }
 
 // Get115TaskInfo copies the hash and submission state together, so an API
@@ -23,7 +25,8 @@ func (t *DownloadTask) Get115TaskInfo() *Open115TaskInfo {
 	}
 	info := &Open115TaskInfo{
 		Tool: Open115Name, SourceURL: t.Url, SubmissionState: SubmissionLegacy,
-		CloudDeleteState: t.cloudDeleteStateLocked(),
+		CloudDeleteState:      t.cloudDeleteStateLocked(),
+		SourceFileDeleteState: t.sourceFileDeleteStateLocked(),
 	}
 	var reference Open115Reference
 	if t.open115 != nil {
@@ -32,6 +35,7 @@ func (t *DownloadTask) Get115TaskInfo() *Open115TaskInfo {
 		reference = Open115Reference{t.open115.StorageID, t.open115.AccountID, t.open115.InfoHash}
 	}
 	allowedErr := t.cloudDeleteAllowedLocked()
+	canDeleteSourceFile := t.cloudDeleteStateLocked() == CloudDeleteNone || t.deleteSourceFile
 	t.mu.RUnlock()
 	if allowedErr != nil {
 		info.CloudDeleteUnavailableReason = allowedErr.Reason
@@ -48,5 +52,6 @@ func (t *DownloadTask) Get115TaskInfo() *Open115TaskInfo {
 		return info
 	}
 	info.CanDeleteCloudRecord = true
+	info.CanDeleteSourceFile = canDeleteSourceFile
 	return info
 }

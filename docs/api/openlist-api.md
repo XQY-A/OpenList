@@ -256,7 +256,7 @@ last durable `submitting` state becomes `unknown`. Tasks with `unknown` or
 through the retry endpoints. Verify the cloud account before intentionally
 creating a new download.
 
-## Optionally remove the cloud download record
+## Optionally remove the cloud download record and source files
 
 The existing deletion endpoints accept `delete_cloud_record=true`:
 
@@ -272,10 +272,12 @@ deletion and response format. Local deletion does not cancel a running download.
 The saved deletion marker prevents it from reappearing after a restart. If that
 marker cannot be saved, deletion reports an error and retains the task.
 
-The option must occur once with the literal value `true` or `false`. Empty,
-duplicate, malformed or other values return code 400 without deleting anything.
-It is separate from `delete_policy`, which controls the existing transfer and
-temporary-file behavior.
+Both `delete_cloud_record` and the optional `delete_source_file` must occur at
+most once with the literal value `true` or `false`; both default to `false`.
+Empty, duplicate, malformed or other values return code 400 without deleting
+anything. `delete_source_file=true` requires `delete_cloud_record=true`.
+These options are separate from `delete_policy`, which controls the existing
+transfer and temporary-file behavior.
 
 When `true`, the operation applies only to `115 Open` download tasks. Other
 tools, `115 Cloud`, and `offline_download_transfer` tasks return a conflict and
@@ -289,26 +291,43 @@ complete lookup proving absence is accepted. A currently running cloud task,
 unknown status, account change or query failure leaves the local task intact.
 Cloud requests and waits for task/account coordination are bounded by a timeout.
 
-Cloud deletion always uses `del_source_file=0`: it removes the 115 download
-record and **preserves downloaded files**. There is no new delete-files option.
-Existing transfer policies still apply independently to their files.
+Cloud deletion defaults to `del_source_file=0`, preserving downloaded files.
+To also delete the corresponding 115 files or folder, append
+`delete_source_file=true` to any of the four endpoints:
 
-The server saves cloud deletion intent before the first lookup, confirms and
-saves the cloud result, then saves the local deletion marker and removes the
-list entry. Saving intent before lookup also protects a confirmed absence whose
-later database write fails. A first attempt that proves no deletion was sent
-can reset its intent after a failed query or an ineligible cloud state, provided
-that reset is saved successfully.
+```http
+POST /api/task/offline_download/delete?tid=<ID>&delete_cloud_record=true&delete_source_file=true
+```
+
+The SDK then sends `del_source_file=1`. Existing transfer policies still apply
+independently. For cross-storage downloads, finish the transfer before removing
+the 115 source files it still needs.
+
+The server synchronously saves cloud deletion intent and the source file option
+before the first lookup. It then saves the confirmed result, saves the local
+deletion marker and removes the list entry. Saving intent before lookup also
+protects a confirmed absence whose later database write fails. A first attempt
+that proves no deletion was sent can reset its intent and file option after a
+failed query or an ineligible cloud state, provided that reset is saved successfully.
 
 An uncertain deletion remains queryable. Explicitly retrying `deleting` or
 `unknown` cleanup only checks the cloud record: reliable absence completes local
-cleanup, while any existing record returns code 409 with reason
+cleanup when files were kept, while any existing record returns code 409 with reason
 `cloud_delete_unknown` without sending another delete. The API cannot determine
 whether that hash belongs to the original record or a newly created download.
 When a confirmed `deleted` record appears again, the reason is
 `cloud_record_reappeared`. These protections also apply after a database failure
 and process restart. Inspect the original cloud account before further action;
 local-only deletion is still available.
+
+When source file deletion was requested, absence confirms only the record.
+Only an explicit successful deletion response for `del_source_file=1` confirms
+file deletion. A lost response, or an already absent record on the first lookup,
+leaves `source_file_delete_state=unknown`; the local task is retained with reason
+`source_file_delete_unconfirmed` even when `cloud_state=deleted`. Repeated
+reconciliation never sends another delete. Subsequent cloud-cleanup requests
+must keep the original file option or receive `delete_option_conflict`.
+Older snapshots without a file option restore as keeping files.
 
 The 115 API has no task generation or conditional-delete parameter. Coordination
 covers this OpenList process; another client can recreate the same hash between
@@ -330,12 +349,14 @@ returns `data.results`, with the same structure for every target:
         "task_id": "<removed task ID>",
         "local_deleted": true,
         "cloud_state": "deleted",
+        "source_file_delete_state": "none",
         "code": 200
       },
       {
         "task_id": "<retained task ID>",
         "local_deleted": false,
         "cloud_state": "none",
+        "source_file_delete_state": "none",
         "code": 409,
         "reason": "cloud_task_active",
         "error": "<explanation>"
@@ -369,6 +390,20 @@ with `local_deleted: false`. Keep that task ID and retry its cleanup rather than
 creating another download. On restart, interrupted `deleting` becomes `unknown`;
 cleanup is never automatically sent during recovery.
 
+`source_file_delete_state` is independent from the cloud record state:
+
+| Value | Meaning |
+| --- | --- |
+| `none` | Source file deletion was not requested |
+| `deleting` | The source file deletion option has been saved |
+| `unknown` | File deletion has not been confirmed; record absence is insufficient |
+| `deleted` | 115 explicitly confirmed the deletion request with source files selected |
+
+When files are requested, clients must also require this state to be `deleted`
+before treating the whole cleanup as successful. A local write failure can
+retain a confirmed file result in memory; after a restart, only a successfully
+saved confirmation remains known. Interrupted file deletion restores as `unknown`.
+
 ### Advertised availability
 
 115 Open task responses also include:
@@ -378,16 +413,20 @@ cleanup is never automatically sent during recovery.
 | `can_delete_cloud_record` | Whether the local task and current storage binding allow a cloud-cleanup attempt |
 | `cloud_delete_unavailable_reason` | An availability reason code, empty when an attempt is allowed |
 | `cloud_delete_state` | The saved or currently known cleanup state |
+| `can_delete_source_file` | Whether the source file option is supported for this task and its saved cleanup intent |
+| `source_file_delete_state` | The independent source file deletion outcome |
 
 Computing availability does not query 115. A task may advertise availability
 while its cloud counterpart is still active; the deletion request checks again
 and returns a conflict. Clients must tolerate missing fields when connected to
-an older backend, and should keep the cloud-cleanup option unchecked by default.
+an older backend. Enable source file deletion only when its capability is explicitly
+`true`; keep both deletion options unchecked by default. A prior cleanup that kept
+files cannot be upgraded to deleting them.
 
 
 ## 当前源码全量接口清单
 
-源码摘要：`411d7fc5306293318f3627cc9bed33e5af495090711fdbb3e89533268dbafbaa`。共 398 个方法／路径注册项（Gin Any 按一个注册项计），OpenAPI 展开为 470 个标准方法操作。
+源码摘要：`ed9f5aa1c2669087c9a6af220fffd04502a311ff4a8a8bc29dde8a2a0aab4295`。共 398 个方法／路径注册项（Gin Any 按一个注册项计），OpenAPI 展开为 470 个标准方法操作。
 
 `Any` 推荐按 POST JSON 调用；OpenAPI 展开其七种可表示的标准方法，额外 CONNECT／TRACE 仅在 Gin Any 中支持。下面的请求结构名称可在后文查找。所有条目均来自当前源码，不含官方文档里未在当前分支注册的路径。
 
@@ -1610,7 +1649,7 @@ type AddURLArgs struct {
 
 ### `internal/offline_download/tool.CloudDeleteError`
 
-源码：`internal/offline_download/tool/download_115_delete.go:30`。
+源码：`internal/offline_download/tool/download_115_delete.go:36`。
 
 ```go
 // CloudDeleteError carries a stable reason for API clients while preserving
@@ -1646,6 +1685,8 @@ type Open115TaskInfo struct {
 	CloudDeleteState		string	`json:"cloud_delete_state"`
 	CanDeleteCloudRecord		bool	`json:"can_delete_cloud_record"`
 	CloudDeleteUnavailableReason	string	`json:"cloud_delete_unavailable_reason"`
+	CanDeleteSourceFile		bool	`json:"can_delete_source_file"`
+	SourceFileDeleteState		string	`json:"source_file_delete_state"`
 }
 ```
 
@@ -3499,18 +3540,31 @@ type ssoBindingClaims struct {
 ```
 
 
+### `server/handles.taskDeleteOptions`
+
+源码：`server/handles/task_delete.go:24`。
+
+```go
+type taskDeleteOptions struct {
+	deleteCloudRecord	bool
+	deleteSourceFile	bool
+}
+```
+
+
 ### `server/handles.taskDeleteResult`
 
 源码：`server/handles/task_delete.go:14`。
 
 ```go
 type taskDeleteResult struct {
-	TaskID		string	`json:"task_id"`
-	LocalDeleted	bool	`json:"local_deleted"`
-	CloudState	string	`json:"cloud_state"`
-	Code		int	`json:"code"`
-	Reason		string	`json:"reason,omitempty"`
-	Error		string	`json:"error,omitempty"`
+	TaskID			string	`json:"task_id"`
+	LocalDeleted		bool	`json:"local_deleted"`
+	CloudState		string	`json:"cloud_state"`
+	SourceFileDeleteState	string	`json:"source_file_delete_state"`
+	Code			int	`json:"code"`
+	Reason			string	`json:"reason,omitempty"`
+	Error			string	`json:"error,omitempty"`
 }
 ```
 
@@ -6783,7 +6837,7 @@ common.ErrorResp(c, err, 500)
 
 ### `server/handles.deleteManagedCloudTask`
 
-源码：`server/handles/task_delete.go:57`。
+源码：`server/handles/task_delete.go:72`。
 
 本地后续调用：`server/handles.taskOperationCode`。
 
@@ -6931,7 +6985,7 @@ common.SuccessResp(c, retErrs)
 
 ### `server/handles.getClearTasksHandler`
 
-源码：`server/handles/task_delete.go:168`。
+源码：`server/handles/task_delete.go:187`。
 
 ```go
 common.ErrorResp(c, err, 400)
@@ -6940,12 +6994,12 @@ common.SuccessResp(c, gin.H{"results": results})
 common.SuccessResp(c)
 ```
 
-本地后续调用：`server/handles.argsContains`, `server/handles.canAccessTask`, `server/handles.deleteManagedCloudTask`, `server/handles.getUserInfo`, `server/handles.parseDeleteCloudRecord`, `server/handles.removeManagedTask`, `server/handles.taskOperationError`。
+本地后续调用：`server/handles.argsContains`, `server/handles.canAccessTask`, `server/handles.deleteManagedCloudTask`, `server/handles.getUserInfo`, `server/handles.parseTaskDeleteOptions`, `server/handles.removeManagedTask`, `server/handles.taskOperationError`。
 
 
 ### `server/handles.getDeleteSomeTasksHandler`
 
-源码：`server/handles/task_delete.go:128`。
+源码：`server/handles/task_delete.go:147`。
 
 请求绑定：`ShouldBind` → `[]string`。
 
@@ -6956,12 +7010,12 @@ common.ErrorStrResp(c, "invalid request format", 400)
 common.SuccessResp(c, gin.H{"results": results})
 ```
 
-本地后续调用：`server/handles.canAccessTask`, `server/handles.deleteManagedCloudTask`, `server/handles.getBatchHandler`, `server/handles.getUserInfo`, `server/handles.missingTaskDeleteResult`, `server/handles.parseDeleteCloudRecord`, `server/handles.removeManagedTask`。
+本地后续调用：`server/handles.canAccessTask`, `server/handles.deleteManagedCloudTask`, `server/handles.getBatchHandler`, `server/handles.getUserInfo`, `server/handles.missingTaskDeleteResult`, `server/handles.parseTaskDeleteOptions`, `server/handles.removeManagedTask`。
 
 
 ### `server/handles.getDeleteTaskHandler`
 
-源码：`server/handles/task_delete.go:95`。
+源码：`server/handles/task_delete.go:114`。
 
 直接参数：query `tid`。
 
@@ -6971,7 +7025,7 @@ common.ErrorResp(c, err, 400)
 common.ErrorStrResp(c, "user invalid", 401)
 ```
 
-本地后续调用：`server/handles.canAccessTask`, `server/handles.deleteManagedCloudTask`, `server/handles.getTargetedHandler`, `server/handles.getUserInfo`, `server/handles.missingTaskDeleteResult`, `server/handles.parseDeleteCloudRecord`, `server/handles.removeManagedTask`, `server/handles.respondTaskDeletion`, `server/handles.taskOperationError`。
+本地后续调用：`server/handles.canAccessTask`, `server/handles.deleteManagedCloudTask`, `server/handles.getTargetedHandler`, `server/handles.getUserInfo`, `server/handles.missingTaskDeleteResult`, `server/handles.parseTaskDeleteOptions`, `server/handles.removeManagedTask`, `server/handles.respondTaskDeletion`, `server/handles.taskOperationError`。
 
 
 ### `server/handles.getHeader`
@@ -7144,7 +7198,7 @@ common.ErrorStrResp(c, "not found", 404)
 
 ### `server/handles.missingTaskDeleteResult`
 
-源码：`server/handles/task_delete.go:51`。
+源码：`server/handles/task_delete.go:65`。
 
 
 ### `server/handles.multipartChunkSize`
@@ -7169,11 +7223,6 @@ common.ErrorStrResp(c, "not found", 404)
 源码：`server/handles/fsread.go:215`。
 
 
-### `server/handles.parseDeleteCloudRecord`
-
-源码：`server/handles/task_delete.go:24`。
-
-
 ### `server/handles.parseJWT`
 
 源码：`server/handles/ssologin.go:311`。
@@ -7184,6 +7233,11 @@ common.ErrorStrResp(c, "not found", 404)
 源码：`server/handles/ssologin.go:68`。
 
 本地后续调用：`server/handles.ssoBindingSessionDigest`。
+
+
+### `server/handles.parseTaskDeleteOptions`
+
+源码：`server/handles/task_delete.go:30`。
 
 
 ### `server/handles.prepareMediaScrapeCandidate`
@@ -7267,7 +7321,7 @@ common.ErrorStrResp(c, "not found", 404)
 
 ### `server/handles.respondTaskDeletion`
 
-源码：`server/handles/task_delete.go:87`。
+源码：`server/handles/task_delete.go:106`。
 
 ```go
 common.ErrorWithDataResp(c, errors.New(result.Error), result.Code, result)
@@ -7495,7 +7549,7 @@ c.Data(200, "text/html; charset=utf-8", []byte(html))
 
 ### `server/handles.taskOperationCode`
 
-源码：`server/handles/task_delete.go:44`。
+源码：`server/handles/task_delete.go:58`。
 
 
 ### `server/handles.taskOperationError`
