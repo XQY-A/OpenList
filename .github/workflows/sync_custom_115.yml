@@ -1,8 +1,6 @@
 name: Sync Personal 115 Upstream
 
 on:
-  schedule:
-    - cron: "47 19 * * *" # 03:47 Asia/Shanghai, after the frontend check.
   workflow_dispatch:
 
 permissions:

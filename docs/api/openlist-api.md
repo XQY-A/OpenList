@@ -426,7 +426,7 @@ files cannot be upgraded to deleting them.
 
 ## 当前源码全量接口清单
 
-源码摘要：`ed9f5aa1c2669087c9a6af220fffd04502a311ff4a8a8bc29dde8a2a0aab4295`。共 398 个方法／路径注册项（Gin Any 按一个注册项计），OpenAPI 展开为 470 个标准方法操作。
+源码摘要：`4c5f707c617dff175cef5a184789a499f0f36a672f30a0b4cfc68b9226f0be14`。共 398 个方法／路径注册项（Gin Any 按一个注册项计），OpenAPI 展开为 470 个标准方法操作。
 
 `Any` 推荐按 POST JSON 调用；OpenAPI 展开其七种可表示的标准方法，额外 CONNECT／TRACE 仅在 Gin Any 中支持。下面的请求结构名称可在后文查找。所有条目均来自当前源码，不含官方文档里未在当前分支注册的路径。
 
@@ -4852,7 +4852,7 @@ common.SuccessResp(c, meta)
 
 ### `server/handles.GetOIDCClient`
 
-源码：`server/handles/ssologin.go:253`。
+源码：`server/handles/ssologin.go:255`。
 
 本地后续调用：`server/handles.ssoRedirectUri`。
 
@@ -5442,7 +5442,7 @@ common.ErrorStrResp(c, "status lookup requires upload_id, or path and size", 400
 
 ### `server/handles.OIDCLoginCallback`
 
-源码：`server/handles/ssologin.go:323`。
+源码：`server/handles/ssologin.go:325`。
 
 直接参数：query `method`; query `state`; query `code`。
 
@@ -5731,7 +5731,7 @@ common.SuccessResp(c, token)
 
 ### `server/handles.SSOLoginCallback`
 
-源码：`server/handles/ssologin.go:414`。
+源码：`server/handles/ssologin.go:416`。
 
 直接参数：query `method`; query `state`。
 
@@ -6723,7 +6723,7 @@ common.ErrorWithDataResp(c, firstErr, 500, data)
 
 ### `server/handles.autoRegister`
 
-源码：`server/handles/ssologin.go:281`。
+源码：`server/handles/ssologin.go:283`。
 
 
 ### `server/handles.buildExportFilename`
@@ -7225,7 +7225,7 @@ common.ErrorStrResp(c, "not found", 404)
 
 ### `server/handles.parseJWT`
 
-源码：`server/handles/ssologin.go:311`。
+源码：`server/handles/ssologin.go:313`。
 
 
 ### `server/handles.parseSSOBindingToken`
