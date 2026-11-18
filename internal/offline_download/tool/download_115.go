@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/OpenListTeam/OpenList/v4/internal/conf"
@@ -30,6 +31,7 @@ const (
 // particular, neither driver credentials nor a serialized user belong here.
 type download115Snapshot struct {
 	URL          string       `json:"url"`
+	CloudName    string       `json:"cloud_name,omitempty"`
 	DstDirPath   string       `json:"dst_dir_path"`
 	TempDir      string       `json:"temp_dir"`
 	DeletePolicy DeletePolicy `json:"delete_policy"`
@@ -72,7 +74,7 @@ func (t *DownloadTask) store115() offline115Store {
 
 func (t *DownloadTask) snapshot115Locked() download115Snapshot {
 	snapshot := download115Snapshot{
-		URL: t.Url, DstDirPath: t.DstDirPath, TempDir: t.TempDir,
+		URL: t.Url, CloudName: t.cloudName, DstDirPath: t.DstDirPath, TempDir: t.TempDir,
 		DeletePolicy: t.DeletePolicy, APIURL: t.ApiUrl,
 		State: t.Base.GetState(), Status: t.Status,
 		Progress: t.Base.GetProgress(), TotalBytes: t.TotalBytes,
@@ -270,7 +272,7 @@ func (t *DownloadTask) RetryWith(enqueue func(*DownloadTask)) error {
 		Url: t.Url, DstDirPath: t.DstDirPath, TempDir: t.TempDir,
 		DeletePolicy: t.DeletePolicy, Toolname: t.Toolname, tool: t.tool,
 		GID: record.InfoHash, open115: &record, open115Store: t.open115Store,
-		operationMu: t.operationMu,
+		operationMu: t.operationMu, cloudName: t.cloudName,
 	}
 	t.mu.RUnlock()
 	if err := next.save115(); err != nil {
@@ -467,6 +469,9 @@ func (t *DownloadTask) run115() error {
 			t.Base.SetProgress(status.Progress)
 			t.TotalBytes = status.TotalBytes
 			t.Status = fmt.Sprintf("[%s]: %s", Open115Name, status.Status.Status)
+			if name := strings.TrimSpace(status.Name); name != "" {
+				t.cloudName = name
+			}
 			t.mu.Unlock()
 			if err := t.save115(); err != nil {
 				return err

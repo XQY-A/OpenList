@@ -218,6 +218,7 @@ Every 115 Open task has these additional fields. Other task types may omit them.
 | Field | Meaning |
 | --- | --- |
 | `tool` | `115 Open` |
+| `source_url` | The original submitted URI, preserved when the displayed name changes |
 | `info_hash` | The exact cloud receipt, or an empty string while unavailable |
 | `submission_state` | Submission outcome, separate from download execution `state` |
 
@@ -237,6 +238,14 @@ Otherwise, query the same task ID until the state changes. A later task response
 contains `"submission_state": "accepted"` and the original, nonempty `info_hash`.
 An accepted receipt does not by itself mean the download completed; continue
 to use the existing execution state, progress and error fields.
+
+The existing `name` keeps the `download <name> to (<destination>)` format.
+After a regular status lookup returns a nonblank cloud `name`, that name replaces
+the URI in the description. The latest nonblank name is saved across restarts
+and retries; an empty cloud name retains the previous name, or the URI if no
+name is known. Use `source_url` for download links and URI searches.
+Already finished historical tasks without a saved cloud name keep their URI
+until they receive another status lookup.
 
 Restarts and explicit retries preserve a known receipt and query the original
 cloud task instead of submitting it again. A receipt whose database write failed
@@ -378,7 +387,7 @@ an older backend, and should keep the cloud-cleanup option unchecked by default.
 
 ## 当前源码全量接口清单
 
-源码摘要：`f7e9a474e2b3e4e4b011ff4606fc689542fe6376176c9f2a92463f30f53b274f`。共 398 个方法／路径注册项（Gin Any 按一个注册项计），OpenAPI 展开为 470 个标准方法操作。
+源码摘要：`411d7fc5306293318f3627cc9bed33e5af495090711fdbb3e89533268dbafbaa`。共 398 个方法／路径注册项（Gin Any 按一个注册项计），OpenAPI 展开为 470 个标准方法操作。
 
 `Any` 推荐按 POST JSON 调用；OpenAPI 展开其七种可表示的标准方法，额外 CONNECT／TRACE 仅在 Gin Any 中支持。下面的请求结构名称可在后文查找。所有条目均来自当前源码，不含官方文档里未在当前分支注册的路径。
 
@@ -1631,6 +1640,7 @@ type DeletePolicy string
 // Account IDs and storage bindings are deliberately kept out of the response.
 type Open115TaskInfo struct {
 	Tool				string	`json:"tool"`
+	SourceURL			string	`json:"source_url"`
 	InfoHash			string	`json:"info_hash"`
 	SubmissionState			string	`json:"submission_state"`
 	CloudDeleteState		string	`json:"cloud_delete_state"`

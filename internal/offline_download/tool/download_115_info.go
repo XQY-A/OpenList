@@ -4,6 +4,7 @@ package tool
 // Account IDs and storage bindings are deliberately kept out of the response.
 type Open115TaskInfo struct {
 	Tool                         string `json:"tool"`
+	SourceURL                    string `json:"source_url"`
 	InfoHash                     string `json:"info_hash"`
 	SubmissionState              string `json:"submission_state"`
 	CloudDeleteState             string `json:"cloud_delete_state"`
@@ -21,7 +22,7 @@ func (t *DownloadTask) Get115TaskInfo() *Open115TaskInfo {
 		return nil
 	}
 	info := &Open115TaskInfo{
-		Tool: Open115Name, SubmissionState: SubmissionLegacy,
+		Tool: Open115Name, SourceURL: t.Url, SubmissionState: SubmissionLegacy,
 		CloudDeleteState: t.cloudDeleteStateLocked(),
 	}
 	var reference Open115Reference

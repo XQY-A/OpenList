@@ -177,7 +177,7 @@ func restore115Download(record model.OfflineDownload115Task) (*DownloadTask, err
 		},
 		Url: snapshot.URL, DstDirPath: snapshot.DstDirPath, TempDir: snapshot.TempDir,
 		DeletePolicy: snapshot.DeletePolicy, Toolname: Open115Name,
-		Status: snapshot.Status, GID: record.InfoHash, open115: &record,
+		Status: snapshot.Status, GID: record.InfoHash, open115: &record, cloudName: snapshot.CloudName,
 	}
 	download.Base.SetID(record.TaskID)
 	download.Base.SetState(snapshot.State)

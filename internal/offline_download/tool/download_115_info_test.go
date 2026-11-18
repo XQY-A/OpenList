@@ -14,9 +14,9 @@ func TestDownload115InfoCompatibility(t *testing.T) {
 			t.Fatalf("%q unexpectedly exposed 115 metadata: %+v", name, info)
 		}
 	}
-	legacy := &DownloadTask{Toolname: Open115Name, GID: "unverified-old-gid"}
+	legacy := &DownloadTask{Toolname: Open115Name, GID: "unverified-old-gid", Url: "magnet:?xt=urn:btih:original"}
 	info := legacy.Get115TaskInfo()
-	if info.Tool != Open115Name || info.InfoHash != "" || info.SubmissionState != SubmissionLegacy {
+	if info.Tool != Open115Name || info.InfoHash != "" || info.SubmissionState != SubmissionLegacy || info.SourceURL != legacy.Url {
 		t.Fatalf("legacy metadata = %+v; must not invent a verified receipt", info)
 	}
 }

@@ -84,6 +84,7 @@ Every 115 Open task has these additional fields. Other task types may omit them.
 | Field | Meaning |
 | --- | --- |
 | `tool` | `115 Open` |
+| `source_url` | The original submitted URI, preserved when the displayed name changes |
 | `info_hash` | The exact cloud receipt, or an empty string while unavailable |
 | `submission_state` | Submission outcome, separate from download execution `state` |
 
@@ -103,6 +104,14 @@ Otherwise, query the same task ID until the state changes. A later task response
 contains `"submission_state": "accepted"` and the original, nonempty `info_hash`.
 An accepted receipt does not by itself mean the download completed; continue
 to use the existing execution state, progress and error fields.
+
+The existing `name` keeps the `download <name> to (<destination>)` format.
+After a regular status lookup returns a nonblank cloud `name`, that name replaces
+the URI in the description. The latest nonblank name is saved across restarts
+and retries; an empty cloud name retains the previous name, or the URI if no
+name is known. Use `source_url` for download links and URI searches.
+Already finished historical tasks without a saved cloud name keep their URI
+until they receive another status lookup.
 
 Restarts and explicit retries preserve a known receipt and query the original
 cloud task instead of submitting it again. A receipt whose database write failed

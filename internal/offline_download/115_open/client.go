@@ -174,6 +174,7 @@ func (o *Open115) Lookup(ctx context.Context, reference tool.Open115Reference) (
 	}
 	status := &tool.Open115TaskStatus{
 		State: cloudTask.Status,
+		Name:  cloudTask.Name,
 		Status: tool.Status{
 			Progress: float64(cloudTask.PercentDone), TotalBytes: cloudTask.Size,
 			Status: cloudTask.GetStatus(), Completed: cloudTask.IsDone(),

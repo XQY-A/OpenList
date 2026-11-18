@@ -43,6 +43,7 @@ type DownloadTask struct {
 	persistErr        error
 	open115           *model.OfflineDownload115Task
 	open115Store      offline115Store
+	cloudName         string
 }
 
 func (t *DownloadTask) Run() error {
@@ -260,7 +261,13 @@ func (t *DownloadTask) Transfer() error {
 }
 
 func (t *DownloadTask) GetName() string {
-	return fmt.Sprintf("download %s to (%s)", t.Url, t.DstDirPath)
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	name := t.Url
+	if t.Is115Open() && t.cloudName != "" {
+		name = t.cloudName
+	}
+	return fmt.Sprintf("download %s to (%s)", name, t.DstDirPath)
 }
 
 var DownloadTaskManager *tache.Manager[*DownloadTask]

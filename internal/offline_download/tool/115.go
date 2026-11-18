@@ -24,6 +24,7 @@ type Open115Submission struct {
 type Open115TaskStatus struct {
 	Status
 	State int
+	Name  string
 }
 
 // Open115Tool separates preparation from submission so the binding and the
